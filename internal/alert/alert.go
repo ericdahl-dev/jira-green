@@ -5,11 +5,13 @@ package alert
 
 import (
 	"bytes"
+	"context"
 	"crypto/hmac"
 	"crypto/sha256"
 	"encoding/hex"
 	"encoding/json"
 	"fmt"
+	"io"
 	"log/slog"
 	"net/http"
 	"time"
@@ -51,9 +53,10 @@ func New(hooks []config.Webhook) *Dispatcher {
 	}
 }
 
-// Dispatch POSTs evt to all configured webhooks. Failures are logged at
-// debug level but never returned: a dead endpoint must not interrupt polling.
-func (d *Dispatcher) Dispatch(evt Event) {
+// Dispatch POSTs evt to all configured webhooks, giving up when ctx is done.
+// Failures are logged at debug level but never returned: a dead endpoint
+// must not interrupt polling.
+func (d *Dispatcher) Dispatch(ctx context.Context, evt Event) {
 	if len(d.hooks) == 0 {
 		return
 	}
@@ -63,14 +66,14 @@ func (d *Dispatcher) Dispatch(evt Event) {
 		return
 	}
 	for _, wh := range d.hooks {
-		if err := d.post(wh, body); err != nil {
+		if err := d.post(ctx, wh, body); err != nil {
 			slog.Debug("webhook POST failed", "url", wh.URL, "err", err)
 		}
 	}
 }
 
-func (d *Dispatcher) post(wh config.Webhook, body []byte) error {
-	req, err := http.NewRequest(http.MethodPost, wh.URL, bytes.NewReader(body))
+func (d *Dispatcher) post(ctx context.Context, wh config.Webhook, body []byte) error {
+	req, err := http.NewRequestWithContext(ctx, http.MethodPost, wh.URL, bytes.NewReader(body))
 	if err != nil {
 		return fmt.Errorf("building request: %w", err)
 	}
@@ -86,7 +89,11 @@ func (d *Dispatcher) post(wh config.Webhook, body []byte) error {
 	if err != nil {
 		return err
 	}
-	defer func() { _ = resp.Body.Close() }()
+	defer func() {
+		// Drain so the keep-alive connection is reused.
+		_, _ = io.Copy(io.Discard, io.LimitReader(resp.Body, 64<<10))
+		_ = resp.Body.Close()
+	}()
 	if resp.StatusCode >= 400 {
 		return fmt.Errorf("server returned %d", resp.StatusCode)
 	}

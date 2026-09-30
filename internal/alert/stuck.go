@@ -7,6 +7,7 @@ import (
 )
 
 // Tracker turns a stream of snapshots into one stuck event per red incident.
+// It is not safe for concurrent use: feed it from one goroutine.
 type Tracker struct {
 	after   time.Duration
 	redFrom map[string]time.Time

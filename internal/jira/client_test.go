@@ -140,6 +140,9 @@ func TestAPIErrorTruncatesLongMessages(t *testing.T) {
 	}
 }
 
+// retryClock is the client's clock in the Retry-After tests.
+var retryClock = time.Date(2026, 9, 30, 12, 0, 0, 0, time.UTC)
+
 func retryAfter(t *testing.T, status int, header string, set bool) time.Duration {
 	t.Helper()
 	c := newTest(t, func(w http.ResponseWriter, r *http.Request) {
@@ -148,6 +151,7 @@ func retryAfter(t *testing.T, status int, header string, set bool) time.Duration
 		}
 		w.WriteHeader(status)
 	})
+	jira.SetNow(c, func() time.Time { return retryClock })
 	_, err := c.Myself(context.Background())
 	var ae *jira.APIError
 	if !errors.As(err, &ae) {
@@ -163,9 +167,9 @@ func TestRetryAfterTrimsWhitespace(t *testing.T) {
 }
 
 func TestRetryAfterHTTPDate(t *testing.T) {
-	date := time.Now().Add(120 * time.Second).UTC().Format(http.TimeFormat)
-	if got := retryAfter(t, http.StatusTooManyRequests, date, true); got <= 110*time.Second || got > 121*time.Second {
-		t.Errorf("got %v, want about 120s", got)
+	date := retryClock.Add(120 * time.Second).Format(http.TimeFormat)
+	if got := retryAfter(t, http.StatusTooManyRequests, date, true); got != 120*time.Second {
+		t.Errorf("got %v, want 120s", got)
 	}
 }
 
@@ -179,7 +183,7 @@ func TestRetryAfterMissingOn429DefaultsToMinute(t *testing.T) {
 }
 
 func TestRetryAfterUnusableOn429DefaultsToMinute(t *testing.T) {
-	past := time.Now().Add(-time.Hour).UTC().Format(http.TimeFormat)
+	past := retryClock.Add(-time.Hour).Format(http.TimeFormat)
 	for _, h := range []string{"soon", "-5", "1.5", past} {
 		if got := retryAfter(t, http.StatusTooManyRequests, h, true); got != 60*time.Second {
 			t.Errorf("Retry-After %q: got %v, want 60s", h, got)
@@ -231,5 +235,28 @@ func TestNon2xxBelow200IsAPIError(t *testing.T) {
 	var ae *jira.APIError
 	if !errors.As(err, &ae) || ae.Status != http.StatusSwitchingProtocols {
 		t.Fatalf("want APIError 101, got %v", err)
+	}
+}
+
+func TestRetryAfterClampedTo15Minutes(t *testing.T) {
+	for _, h := range []string{"86400", "9223372036854775807"} {
+		if got := retryAfter(t, http.StatusTooManyRequests, h, true); got != 15*time.Minute {
+			t.Errorf("Retry-After %s: got %v, want 15m", h, got)
+		}
+	}
+}
+
+func TestAPIErrorReadsMessageShape(t *testing.T) {
+	c := newTest(t, func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusNotFound)
+		_, _ = w.Write([]byte(`{"message":"Board does not exist","status-code":404}`))
+	})
+	_, err := c.Myself(context.Background())
+	var ae *jira.APIError
+	if !errors.As(err, &ae) || !slices.Equal(ae.Messages, []string{"Board does not exist"}) {
+		t.Fatalf("got %#v", err)
+	}
+	if got := err.Error(); got != "jira: HTTP 404: Board does not exist" {
+		t.Errorf("Error() = %q", got)
 	}
 }

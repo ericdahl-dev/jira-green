@@ -19,6 +19,7 @@ import (
 type Client struct {
 	site, email, token string
 	http               *http.Client
+	now                func() time.Time // reads a Retry-After HTTP-date
 }
 
 // New returns a Client for site, e.g. "https://example.atlassian.net".
@@ -28,6 +29,7 @@ func New(site, email, token string) *Client {
 		email: email,
 		token: token,
 		http:  &http.Client{Timeout: 20 * time.Second},
+		now:   time.Now,
 	}
 }
 
@@ -62,7 +64,7 @@ func (c *Client) do(ctx context.Context, method, path string, body, out any) err
 	defer func() { _ = resp.Body.Close() }()
 	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
 		b, _ := io.ReadAll(io.LimitReader(resp.Body, 2048))
-		retry := parseRetryAfter(resp.Header.Get("Retry-After"))
+		retry := parseRetryAfter(resp.Header.Get("Retry-After"), c.now())
 		if retry == 0 && resp.StatusCode == http.StatusTooManyRequests {
 			retry = defaultRetryAfter
 		}

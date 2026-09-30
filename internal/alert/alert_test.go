@@ -1,6 +1,7 @@
 package alert_test
 
 import (
+	"context"
 	"crypto/hmac"
 	"crypto/sha256"
 	"encoding/hex"
@@ -34,7 +35,7 @@ func TestDispatchPostsSignedJSON(t *testing.T) {
 	defer srv.Close()
 
 	d := alert.New([]config.Webhook{{URL: srv.URL, Secret: "shh"}})
-	d.Dispatch(alert.Event{
+	d.Dispatch(context.Background(), alert.Event{
 		Type:    alert.TypeTicketStuck,
 		Key:     "ABC-1",
 		Summary: "Fix the widget",
@@ -77,7 +78,7 @@ func TestDispatchWithoutSecretSendsNoSignature(t *testing.T) {
 	}))
 	defer srv.Close()
 
-	alert.New([]config.Webhook{{URL: srv.URL}}).Dispatch(alert.Event{Type: alert.TypeTicketStuck})
+	alert.New([]config.Webhook{{URL: srv.URL}}).Dispatch(context.Background(), alert.Event{Type: alert.TypeTicketStuck})
 	select {
 	case sig := <-done:
 		if sig != "" {
@@ -94,9 +95,26 @@ func TestDispatchSurvivesFailingEndpoint(t *testing.T) {
 	}))
 	defer srv.Close()
 	// Must not panic and must not block.
-	alert.New([]config.Webhook{{URL: srv.URL}}).Dispatch(alert.Event{Type: alert.TypeTicketStuck})
+	alert.New([]config.Webhook{{URL: srv.URL}}).Dispatch(context.Background(), alert.Event{Type: alert.TypeTicketStuck})
 }
 
 func TestDispatchNoHooksIsNoop(t *testing.T) {
-	alert.New(nil).Dispatch(alert.Event{Type: alert.TypeTicketStuck})
+	alert.New(nil).Dispatch(context.Background(), alert.Event{Type: alert.TypeTicketStuck})
+}
+
+func TestDispatchCancelledContextSendsNothing(t *testing.T) {
+	hit := make(chan struct{}, 1)
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		hit <- struct{}{}
+	}))
+	defer srv.Close()
+
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+	alert.New([]config.Webhook{{URL: srv.URL}}).Dispatch(ctx, alert.Event{Type: alert.TypeTicketStuck})
+	select {
+	case <-hit:
+		t.Fatal("a cancelled context still delivered the webhook")
+	case <-time.After(100 * time.Millisecond):
+	}
 }

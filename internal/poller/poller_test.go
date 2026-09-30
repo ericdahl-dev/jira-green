@@ -240,7 +240,9 @@ func TestStartStopsOn401(t *testing.T) {
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 
-	snaps := newPoller(c, f, &now).Start(ctx)
+	p := newPoller(c, f, &now)
+	recordWaits(p)
+	snaps := p.Start(ctx)
 	if s, ok := recv(t, snaps); !ok || !s.AuthFailed {
 		t.Fatalf("first snapshot = %+v (open %v), want AuthFailed", s, ok)
 	}
@@ -258,6 +260,7 @@ func TestStartKeepsPollingThrough403(t *testing.T) {
 	defer cancel()
 
 	p := newPoller(c, f, &now)
+	recordWaits(p)
 	snaps := p.Start(ctx)
 	if s, _ := recv(t, snaps); s.Err != nil {
 		t.Fatalf("first poll: %v", s.Err)
@@ -319,6 +322,7 @@ func TestStartWaitsForRetryAfter(t *testing.T) {
 	}
 
 	f.setErr(&jira.APIError{Status: 429, RetryAfter: 5 * time.Second})
+	now = t0.Add(90 * time.Second) // Refresh waits out the 90s first
 	p.Refresh()
 	recv(t, snaps)
 	if d := nextWait(t, waits); d != 30*time.Second {
@@ -565,5 +569,83 @@ func TestStartCancelledMidPollEmitsNoCanceledSnapshot(t *testing.T) {
 				t.Fatalf("emitted a snapshot carrying context.Canceled: %+v", s)
 			}
 		}
+	}
+}
+
+func TestRefreshDuringRetryAfterWaitsItOut(t *testing.T) {
+	c := cfg(t, "[settings]\n  poll_interval_seconds = 45\n")
+	f := newFake()
+	now := t0
+	p := newPoller(c, f, &now)
+	waits := recordWaits(p)
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+
+	f.setErr(&jira.APIError{Status: 429, RetryAfter: 90 * time.Second})
+	snaps := p.Start(ctx)
+	recv(t, snaps)
+	nextWait(t, waits)
+
+	f.setErr(nil)
+	now = t0.Add(60 * time.Second)
+	p.Refresh()
+	if d := nextWait(t, waits); d != 30*time.Second {
+		t.Errorf("Refresh 60s into a 90s Retry-After: wait %v, want the remaining 30s", d)
+	}
+	select {
+	case s := <-snaps:
+		t.Fatalf("Refresh polled inside the Retry-After window: %+v", s)
+	default:
+	}
+
+	now = t0.Add(90 * time.Second)
+	p.Refresh()
+	if s, ok := recv(t, snaps); !ok || s.Err != nil {
+		t.Fatalf("Refresh after the window: %+v (open %v), want a good poll", s, ok)
+	}
+}
+
+func TestPollPrunesCachesForIssuesNotSeen(t *testing.T) {
+	c := cfg(t, "")
+	f := newFake()
+	iss := truncated("ABC-1", t0)
+	f.byJQL[c.MineJQL()] = []model.Issue{iss}
+	now := t0
+	p := newPoller(c, f, &now)
+
+	p.PollOnce(context.Background())
+	f.byJQL[c.MineJQL()] = nil // left every lane
+	p.PollOnce(context.Background())
+	f.byJQL[c.MineJQL()] = []model.Issue{iss} // back, Updated unchanged
+	p.PollOnce(context.Background())
+	if f.changelogHits["ABC-1"] != 2 || f.commentHits["ABC-1"] != 2 {
+		t.Fatalf("cache kept an unseen issue: changelog %d comment %d fetches, want 2 each",
+			f.changelogHits["ABC-1"], f.commentHits["ABC-1"])
+	}
+}
+
+func TestPollSkipsCacheWhenUpdatedIsZero(t *testing.T) {
+	c := cfg(t, "")
+	f := newFake()
+	f.byJQL[c.MineJQL()] = []model.Issue{truncated("ABC-1", time.Time{})}
+	now := t0
+	p := newPoller(c, f, &now)
+
+	p.PollOnce(context.Background())
+	p.PollOnce(context.Background())
+	if f.changelogHits["ABC-1"] != 2 || f.commentHits["ABC-1"] != 2 {
+		t.Fatalf("zero Updated was cached: changelog %d comment %d fetches, want 2 each",
+			f.changelogHits["ABC-1"], f.commentHits["ABC-1"])
+	}
+}
+
+func TestPollDecodeErrorsMakeAStaleCard(t *testing.T) {
+	c := cfg(t, "")
+	f := newFake()
+	f.byJQL[c.MineJQL()] = []model.Issue{{Key: "ABC-1", StatusID: "1", Created: t0, Updated: t0, DecodeErrors: []string{"created: bad"}}}
+	now := t0
+	snap := newPoller(c, f, &now).PollOnce(context.Background())
+	if snap.Err != nil || len(snap.Cards) != 1 || snap.Cards[0].Light != model.Stale {
+		t.Fatalf("want one stale card, got %+v", snap)
 	}
 }

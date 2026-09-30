@@ -6,6 +6,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"maps"
 	"net/http"
 	"sync"
 	"time"
@@ -161,6 +162,10 @@ func (p *Poller) fetch(ctx context.Context, now time.Time) (Snapshot, error) {
 			cards = append(cards, model.Evaluate(iss, col, l.lane, rules, now, false))
 		}
 	}
+	// Drop cache entries for issues that left every lane (or were muted), so
+	// the caches do not grow without bound over a long session.
+	maps.DeleteFunc(p.changelogs, func(k string, _ clEntry) bool { return !seen[k] })
+	maps.DeleteFunc(p.comments, func(k string, _ cmEntry) bool { return !seen[k] })
 	return Snapshot{Columns: p.cols, Cards: cards, At: now}, nil
 }
 
@@ -178,7 +183,10 @@ func fatal(err error) bool {
 // ones, fetched only when the issue changed since the last fetch. A non-fatal
 // failure keeps the first page and marks the card with a decode error.
 func (p *Poller) fillComments(ctx context.Context, iss *model.Issue) error {
-	if e, ok := p.comments[iss.Key]; ok && e.updated.Equal(iss.Updated) {
+	// A zero Updated (missing or undecodable) cannot tell a change apart, so
+	// it is never cached.
+	cacheable := !iss.Updated.IsZero()
+	if e, ok := p.comments[iss.Key]; ok && cacheable && e.updated.Equal(iss.Updated) {
 		iss.Comments = e.comments
 		return nil
 	}
@@ -191,14 +199,17 @@ func (p *Poller) fillComments(ctx context.Context, iss *model.Issue) error {
 		return nil
 	}
 	iss.Comments = cms
-	p.comments[iss.Key] = cmEntry{updated: iss.Updated, comments: cms}
+	if cacheable {
+		p.comments[iss.Key] = cmEntry{updated: iss.Updated, comments: cms}
+	}
 	return nil
 }
 
 // statusSince reads the changelog only when the issue changed since the last
 // read.
 func (p *Poller) statusSince(ctx context.Context, iss model.Issue) (time.Time, error) {
-	if e, ok := p.changelogs[iss.Key]; ok && e.updated.Equal(iss.Updated) {
+	cacheable := !iss.Updated.IsZero() // see fillComments
+	if e, ok := p.changelogs[iss.Key]; ok && cacheable && e.updated.Equal(iss.Updated) {
 		return e.since, nil
 	}
 	ch, err := p.api.StatusChanges(ctx, iss.Key)
@@ -206,7 +217,9 @@ func (p *Poller) statusSince(ctx context.Context, iss model.Issue) (time.Time, e
 		return time.Time{}, err
 	}
 	since := model.StatusSince(iss.Created, iss.StatusID, ch)
-	p.changelogs[iss.Key] = clEntry{updated: iss.Updated, since: since}
+	if cacheable {
+		p.changelogs[iss.Key] = clEntry{updated: iss.Updated, since: since}
+	}
 	return since, nil
 }
 
@@ -221,7 +234,8 @@ func (p *Poller) Refresh() {
 }
 
 // Start polls now and then every PollInterval (or a 429's longer RetryAfter),
-// sending each Snapshot on the returned channel. Refresh polls at once.
+// sending each Snapshot on the returned channel. Refresh polls at once, or
+// as soon as a 429's RetryAfter has passed.
 // Polling stops, and the channel closes, when ctx is done or a poll gets a
 // 401.
 func (p *Poller) Start(ctx context.Context) <-chan Snapshot {
@@ -241,13 +255,33 @@ func (p *Poller) Start(ctx context.Context) <-chan Snapshot {
 			if snap.AuthFailed {
 				return
 			}
-			select {
-			case <-p.after(max(p.cfg.PollInterval(), snap.RetryAfter)):
-			case <-p.refresh:
-			case <-ctx.Done():
+			if !p.wait(ctx, snap.RetryAfter) {
 				return
 			}
 		}
 	}()
 	return out
+}
+
+// wait blocks until the next poll is due: PollInterval (or retryAfter, if
+// longer) from now, or a Refresh that is not inside the retryAfter window.
+// A Refresh inside the window waits out the rest of it. wait reports false
+// when ctx is done.
+func (p *Poller) wait(ctx context.Context, retryAfter time.Duration) bool {
+	notBefore := p.now().Add(retryAfter)
+	timer := p.after(max(p.cfg.PollInterval(), retryAfter))
+	for {
+		select {
+		case <-timer:
+			return true
+		case <-p.refresh:
+			left := notBefore.Sub(p.now())
+			if left <= 0 {
+				return true
+			}
+			timer = p.after(left)
+		case <-ctx.Done():
+			return false
+		}
+	}
 }

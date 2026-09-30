@@ -16,7 +16,7 @@ import (
 type APIError struct {
 	Status int
 	// Messages is Jira's error envelope flattened: errorMessages first, then
-	// "field: msg" for each entry of errors, sorted by field.
+	// message, then "field: msg" for each entry of errors, sorted by field.
 	Messages []string
 	// Body is the raw (size-limited) response body, kept for debugging.
 	Body       string
@@ -41,16 +41,21 @@ func (e *APIError) Error() string {
 }
 
 // errorMessages parses Jira's {"errorMessages":[...],"errors":{...}}
-// envelope. It returns nil when body is not such an envelope.
+// envelope, and the {"message":"..."} shape some endpoints (the Agile API,
+// the gateway) use. It returns nil when body is neither.
 func errorMessages(body []byte) []string {
 	var env struct {
 		ErrorMessages []string          `json:"errorMessages"`
 		Errors        map[string]string `json:"errors"`
+		Message       string            `json:"message"`
 	}
 	if json.Unmarshal(body, &env) != nil {
 		return nil
 	}
 	out := slices.Clone(env.ErrorMessages)
+	if env.Message != "" {
+		out = append(out, env.Message)
+	}
 	for _, k := range slices.Sorted(maps.Keys(env.Errors)) {
 		out = append(out, k+": "+env.Errors[k])
 	}
@@ -69,15 +74,21 @@ func IsAuth(err error) bool {
 // defaultRetryAfter is the backoff for a 429 with no usable Retry-After.
 const defaultRetryAfter = 60 * time.Second
 
-// parseRetryAfter reads a Retry-After header: whole seconds or an HTTP-date.
-// It returns 0 for a missing, unparseable, or negative value.
-func parseRetryAfter(h string) time.Duration {
+// maxRetryAfter caps a server's Retry-After, so a bogus or hostile value
+// cannot stop the dashboard for hours.
+const maxRetryAfter = 15 * time.Minute
+
+// parseRetryAfter reads a Retry-After header: whole seconds or an HTTP-date,
+// measured from now.
+// It returns 0 for a missing, unparseable, or negative value, and at most
+// maxRetryAfter.
+func parseRetryAfter(h string, now time.Time) time.Duration {
 	h = strings.TrimSpace(h)
 	var d time.Duration
 	if n, err := strconv.Atoi(h); err == nil {
-		d = time.Duration(n) * time.Second
+		d = time.Duration(min(n, int(maxRetryAfter/time.Second))) * time.Second // no overflow
 	} else if t, err := http.ParseTime(h); err == nil {
-		d = time.Until(t)
+		d = t.Sub(now)
 	}
-	return max(d, 0)
+	return min(max(d, 0), maxRetryAfter)
 }
