@@ -2,12 +2,22 @@
 package main
 
 import (
+	"context"
+	"errors"
+	"flag"
 	"fmt"
 	"io"
+	"io/fs"
 	"os"
+
+	"github.com/ericdahl-dev/jira-green/internal/config"
+	"github.com/ericdahl-dev/jira-green/internal/wizard"
 )
 
 var version = "dev"
+
+// runWizard is the init wizard; tests replace it.
+var runWizard = wizard.RunInteractive
 
 const usage = `jira-green — terminal dashboard for Jira ticket flow health
 
@@ -31,6 +41,45 @@ func run(args []string, stdout, stderr io.Writer) int {
 			return 0
 		}
 	}
+	path, err := config.DefaultPath()
+	if err != nil {
+		_, _ = fmt.Fprintf(stderr, "jira-green: %v\n", err)
+		return 1
+	}
+	if len(args) > 0 && args[0] == "init" {
+		return runInit(args[1:], path, stderr)
+	}
+	cfg, err := config.Load(path)
+	if err != nil {
+		if errors.Is(err, fs.ErrNotExist) {
+			_, _ = fmt.Fprintln(stderr, "no config - run: jira-green init")
+			return 1
+		}
+		_, _ = fmt.Fprintf(stderr, "jira-green: %v\n", err)
+		return 1
+	}
+	if _, err := config.ResolveToken(cfg.Jira); err != nil {
+		_, _ = fmt.Fprintf(stderr, "jira-green: %v\n", err)
+		return 1
+	}
 	_, _ = fmt.Fprintln(stderr, "dashboard not implemented yet")
 	return 1
+}
+
+func runInit(args []string, path string, stderr io.Writer) int {
+	flags := flag.NewFlagSet("init", flag.ContinueOnError)
+	flags.SetOutput(stderr)
+	force := flags.Bool("force", false, "replace an existing config")
+	if err := flags.Parse(args); err != nil {
+		return 2
+	}
+	err := runWizard(context.Background(), path, *force)
+	switch {
+	case errors.Is(err, wizard.ErrUserAborted):
+		return 0
+	case err != nil:
+		_, _ = fmt.Fprintf(stderr, "jira-green init: %v\n", err)
+		return 1
+	}
+	return 0
 }
