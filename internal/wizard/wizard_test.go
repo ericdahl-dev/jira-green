@@ -135,3 +135,37 @@ func TestFinishNeverWritesLiteralToken(t *testing.T) {
 		})
 	}
 }
+
+func TestFinishForceKeepsOldFileWhenAnswersInvalid(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "config.toml")
+	old := []byte("[jira]\nsite = \"https://example.atlassian.net\"\n")
+	if err := os.WriteFile(path, old, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	a := answers()
+	a.Email = ""
+	if _, err := wizard.Finish(context.Background(), fakeAPI{}, a, path, true); err == nil {
+		t.Fatal("want error")
+	}
+	if b, _ := os.ReadFile(path); string(b) != string(old) {
+		t.Fatalf("file changed: %q", b)
+	}
+}
+
+func TestFinishRequiresExactlyOneTokenSource(t *testing.T) {
+	both := answers()
+	both.TokenEnv = "JIRA_API_TOKEN"
+	neither := answers()
+	neither.TokenCommand = ""
+	for name, a := range map[string]wizard.Answers{"both": both, "neither": neither} {
+		t.Run(name, func(t *testing.T) {
+			path := filepath.Join(t.TempDir(), "config.toml")
+			if _, err := wizard.Finish(context.Background(), fakeAPI{}, a, path, false); err == nil {
+				t.Fatal("want error")
+			}
+			if _, err := os.Stat(path); !errors.Is(err, os.ErrNotExist) {
+				t.Fatalf("config written: %v", err)
+			}
+		})
+	}
+}

@@ -380,9 +380,19 @@ func WriteStarter(path string, j Jira) (*Config, error) {
 	case !errors.Is(err, fs.ErrNotExist):
 		return nil, fmt.Errorf("check %s: %w", path, err)
 	}
+	c, err := NewStarter(path, j)
+	if err != nil {
+		return nil, err
+	}
+	return c, c.Save()
+}
+
+// NewStarter validates j and returns a Config that saves to path. It writes
+// nothing; Save replaces any existing file atomically.
+func NewStarter(path string, j Jira) (*Config, error) {
 	c := &Config{Jira: j, path: path}
 	if err := c.validate(); err != nil {
 		return nil, err
 	}
-	return c, c.Save()
+	return c, nil
 }
