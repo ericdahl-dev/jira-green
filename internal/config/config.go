@@ -14,6 +14,7 @@ import (
 	"path/filepath"
 	"slices"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/BurntSushi/toml"
@@ -62,6 +63,11 @@ type Webhook struct {
 
 // Config is config.toml as the user wrote it. Defaults are not stored in
 // it; they are resolved by the accessor methods.
+//
+// Muted is the only field that changes after Load: SetMuted (the UI) and
+// IsMuted (the poller goroutine) guard it with mu, so read it through
+// IsMuted or MutedKeys, never directly. Every other field is read-only once
+// Load returns, so Rules and the other accessors need no lock.
 type Config struct {
 	Settings      Settings       `toml:"settings,omitempty"`
 	Jira          Jira           `toml:"jira"`
@@ -72,6 +78,7 @@ type Config struct {
 	Webhooks      []Webhook      `toml:"webhooks,omitempty"`
 
 	path string
+	mu   sync.RWMutex // guards Muted
 }
 
 // Default lane queries, used when [jql] leaves a key unset.
@@ -247,12 +254,28 @@ func (c *Config) Rules(me string) (model.Rules, error) {
 // Path is the file the config was loaded from and saves to.
 func (c *Config) Path() string { return c.path }
 
-// IsMuted reports whether an issue or epic key is muted.
-func (c *Config) IsMuted(key string) bool { return slices.Contains(c.Muted, key) }
+// IsMuted reports whether an issue or epic key is muted. It is safe to call
+// while another goroutine calls SetMuted.
+func (c *Config) IsMuted(key string) bool {
+	c.mu.RLock()
+	defer c.mu.RUnlock()
+	return slices.Contains(c.Muted, key)
+}
 
-// SetMuted adds or removes a key from the mute list and saves.
+// MutedKeys returns a copy of the mute list. It is safe to call while
+// another goroutine calls SetMuted.
+func (c *Config) MutedKeys() []string {
+	c.mu.RLock()
+	defer c.mu.RUnlock()
+	return slices.Clone(c.Muted)
+}
+
+// SetMuted adds or removes a key from the mute list and saves. It holds the
+// write lock through the save, so concurrent calls save in order.
 func (c *Config) SetMuted(key string, muted bool) error {
-	has := c.IsMuted(key)
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	has := slices.Contains(c.Muted, key)
 	switch {
 	case muted && !has:
 		c.Muted = append(c.Muted, key)
@@ -261,12 +284,19 @@ func (c *Config) SetMuted(key string, muted bool) error {
 	default:
 		return nil
 	}
-	return c.Save()
+	return c.save()
 }
 
 // Save writes the config atomically: a temp file in the same directory,
 // mode 0600, renamed over the target.
 func (c *Config) Save() error {
+	c.mu.RLock()
+	defer c.mu.RUnlock()
+	return c.save()
+}
+
+// save is Save for a caller that already holds mu.
+func (c *Config) save() error {
 	var buf bytes.Buffer
 	if err := toml.NewEncoder(&buf).Encode(c); err != nil {
 		return err

@@ -329,3 +329,32 @@ func TestPollRefreshesBoardColumnsAfterInterval(t *testing.T) {
 		t.Fatalf("at the refresh interval: want 2 board fetches, got %d", f.boardCalls)
 	}
 }
+
+func TestSetMutedWhileStartRunsIsRaceFree(t *testing.T) {
+	c := cfg(t, "")
+	f := newFake()
+	f.byJQL[c.MineJQL()] = []model.Issue{{Key: "ABC-1", EpicKey: "ABC-100", StatusID: "1", Created: t0, Updated: t0}}
+	now := t0
+	p := newPoller(c, f, &now)
+	waits := recordWaits(p)
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+
+	snaps, refresh := p.Start(ctx)
+	done := make(chan struct{})
+	go func() {
+		defer close(done)
+		for i := range 50 {
+			if err := c.SetMuted("ABC-9", i%2 == 0); err != nil {
+				t.Error(err)
+				return
+			}
+		}
+	}()
+	for range 20 {
+		recv(t, snaps)
+		nextWait(t, waits)
+		refresh <- struct{}{}
+	}
+	<-done
+}
