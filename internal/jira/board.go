@@ -41,29 +41,25 @@ type Board struct {
 	ProjectKey string
 }
 
+type apiBoard struct {
+	ID       int    `json:"id"`
+	Name     string `json:"name"`
+	Location struct {
+		ProjectKey string `json:"projectKey"`
+	} `json:"location"`
+}
+
 // Boards lists boards visible to the user (for the init wizard).
 func (c *Client) Boards(ctx context.Context) ([]Board, error) {
-	var out []Board
-	for start := 0; ; {
-		var r struct {
-			IsLast bool `json:"isLast"`
-			Values []struct {
-				ID       int    `json:"id"`
-				Name     string `json:"name"`
-				Location struct {
-					ProjectKey string `json:"projectKey"`
-				} `json:"location"`
-			} `json:"values"`
-		}
-		if err := c.do(ctx, http.MethodGet, fmt.Sprintf("/rest/agile/1.0/board?startAt=%d&maxResults=50", start), nil, &r); err != nil {
-			return nil, err
-		}
-		for _, v := range r.Values {
-			out = append(out, Board{ID: v.ID, Name: v.Name, ProjectKey: v.Location.ProjectKey})
-		}
-		if r.IsLast || len(r.Values) == 0 {
-			return out, nil
-		}
-		start += len(r.Values)
+	vs, err := offsetPages[apiBoard](ctx, c, func(start int) string {
+		return fmt.Sprintf("/rest/agile/1.0/board?startAt=%d&maxResults=50", start)
+	})
+	if err != nil {
+		return nil, err
 	}
+	out := make([]Board, 0, len(vs))
+	for _, v := range vs {
+		out = append(out, Board{ID: v.ID, Name: v.Name, ProjectKey: v.Location.ProjectKey})
+	}
+	return out, nil
 }

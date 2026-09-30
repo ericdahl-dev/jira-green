@@ -110,3 +110,56 @@ func TestBoardsPaginates(t *testing.T) {
 		t.Fatalf("%+v %v", bs, err)
 	}
 }
+
+func TestBoardsServerIgnoringStartAtHitsPageCap(t *testing.T) {
+	calls := 0
+	c := newTest(t, func(w http.ResponseWriter, r *http.Request) {
+		calls++
+		if calls > 60 {
+			t.Errorf("still paginating after %d calls", calls)
+			_, _ = w.Write([]byte(`{"isLast":true,"values":[]}`))
+			return
+		}
+		_, _ = w.Write([]byte(`{"isLast":false,"values":[{"id":7,"name":"ABC board"}]}`))
+	})
+	if _, err := c.Boards(context.Background()); err == nil {
+		t.Fatal("want an error once the page cap is exceeded")
+	}
+	if calls != 50 {
+		t.Errorf("calls %d, want the 50-page cap", calls)
+	}
+}
+
+func TestStatusChangesStopsAtTotal(t *testing.T) {
+	calls := 0
+	c := newTest(t, func(w http.ResponseWriter, r *http.Request) {
+		calls++
+		if calls > 60 {
+			_, _ = w.Write([]byte(`{"isLast":true,"values":[]}`))
+			return
+		}
+		// No isLast, and startAt ignored: only total says we are done.
+		_, _ = w.Write([]byte(`{"startAt":0,"total":1,"values":[
+			{"created":"2026-09-21T09:00:00.000-0400","items":[{"field":"status","to":"3"}]}]}`))
+	})
+	ch, err := c.StatusChanges(context.Background(), "ABC-1")
+	if err != nil || len(ch) != 1 || calls != 1 {
+		t.Fatalf("changes %+v err %v calls %d", ch, err, calls)
+	}
+}
+
+func TestBoardsEmptyPageEndsPagination(t *testing.T) {
+	calls := 0
+	c := newTest(t, func(w http.ResponseWriter, r *http.Request) {
+		calls++
+		if r.URL.Query().Get("startAt") == "0" {
+			_, _ = w.Write([]byte(`{"isLast":false,"values":[{"id":7,"name":"ABC board"}]}`))
+			return
+		}
+		_, _ = w.Write([]byte(`{"isLast":false,"values":[]}`))
+	})
+	bs, err := c.Boards(context.Background())
+	if err != nil || len(bs) != 1 || calls != 2 {
+		t.Fatalf("boards %+v err %v calls %d", bs, err, calls)
+	}
+}

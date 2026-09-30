@@ -9,6 +9,10 @@ import (
 	"github.com/ericdahl-dev/jira-green/internal/model"
 )
 
+// maxPages caps every paginated call. Hitting it is an error, never a
+// silently truncated result.
+const maxPages = 50
+
 var baseFields = []string{"summary", "status", "assignee", "parent", "labels", "created", "updated", "comment"}
 
 type apiIssue struct {
@@ -31,7 +35,8 @@ func (c *Client) Search(ctx context.Context, jql, flaggedField string) ([]model.
 	}
 	var out []model.Issue
 	token := ""
-	for {
+	seen := map[string]bool{}
+	for range maxPages {
 		body := map[string]any{"jql": jql, "fields": fields, "maxResults": 100}
 		if token != "" {
 			body["nextPageToken"] = token
@@ -46,8 +51,13 @@ func (c *Client) Search(ctx context.Context, jql, flaggedField string) ([]model.
 		if r.IsLast || r.NextPageToken == "" {
 			return out, nil
 		}
+		if seen[r.NextPageToken] {
+			return nil, fmt.Errorf("jira: search: nextPageToken %q repeated", r.NextPageToken)
+		}
+		seen[r.NextPageToken] = true
 		token = r.NextPageToken
 	}
+	return nil, fmt.Errorf("jira: search: more than %d pages", maxPages)
 }
 
 type apiComment struct {

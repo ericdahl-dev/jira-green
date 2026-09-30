@@ -182,3 +182,38 @@ func TestSearchTruncatedCommentFetchFailureIsDecodeError(t *testing.T) {
 		t.Errorf("comments %+v decode errors %q", a.Comments, a.DecodeErrors)
 	}
 }
+
+func TestSearchRepeatedPageTokenIsError(t *testing.T) {
+	calls := 0
+	c := newTest(t, func(w http.ResponseWriter, r *http.Request) {
+		calls++
+		if calls > 10 {
+			t.Errorf("still paginating after %d calls", calls)
+			_, _ = w.Write([]byte(`{"isLast":true,"issues":[]}`))
+			return
+		}
+		_, _ = w.Write([]byte(`{"isLast":false,"nextPageToken":"same","issues":[{"key":"ABC-1","fields":{}}]}`))
+	})
+	if _, err := c.Search(context.Background(), "project = ABC", ""); err == nil {
+		t.Fatal("want an error for a repeated nextPageToken")
+	}
+}
+
+func TestSearchEndlessEmptyPagesHitPageCap(t *testing.T) {
+	calls := 0
+	c := newTest(t, func(w http.ResponseWriter, r *http.Request) {
+		calls++
+		if calls > 60 {
+			t.Errorf("still paginating after %d calls", calls)
+			_, _ = w.Write([]byte(`{"isLast":true,"issues":[]}`))
+			return
+		}
+		_, _ = fmt.Fprintf(w, `{"isLast":false,"nextPageToken":"t%d","issues":[]}`, calls)
+	})
+	if _, err := c.Search(context.Background(), "project = ABC", ""); err == nil {
+		t.Fatal("want an error once the page cap is exceeded, not a truncated result")
+	}
+	if calls != 50 {
+		t.Errorf("calls %d, want the 50-page cap", calls)
+	}
+}
