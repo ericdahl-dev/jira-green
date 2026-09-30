@@ -190,3 +190,12 @@ func TestPickerFitsWidth(t *testing.T) {
 		t.Errorf("Jira's message wraps rather than being cut:\n%s", v)
 	}
 }
+
+func TestPickerClearsErrorOnNewConfirm(t *testing.T) {
+	p := pressPicker(loadedPicker(), "enter", "y")
+	p, _ = p.Update(ui.TransitionResultMsg{Key: "ABC-1", Err: errors.New("jira: HTTP 409 Conflict")})
+	p = pressPicker(p, "down", "enter")
+	if v := p.View(); strings.Contains(v, "409") || !strings.Contains(v, "Move ABC-1 to Done? y/n") {
+		t.Errorf("the old error goes when a new confirmation starts:\n%s", v)
+	}
+}

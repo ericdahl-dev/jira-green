@@ -93,7 +93,9 @@ func (p Picker) Update(msg tea.Msg) (Picker, tea.Cmd) {
 		case "down", "j":
 			p.sel = min(p.sel+1, max(len(p.items)-1, 0))
 		case "enter":
-			p.confirming = len(p.items) > 0
+			if len(p.items) > 0 {
+				p.confirming, p.err = true, nil
+			}
 		case "esc", "q":
 			return p, func() tea.Msg { return ClosePickerMsg{} }
 		}
