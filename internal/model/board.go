@@ -114,6 +114,12 @@ func sortCards(cs []Card) {
 	})
 }
 
+// Progress is an epic's child issues: Done of Total are in the Done status
+// category.
+type Progress struct {
+	Done, Total int
+}
+
 // EpicGroup is one row group in the list view.
 type EpicGroup struct {
 	Key   string

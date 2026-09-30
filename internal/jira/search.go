@@ -194,3 +194,20 @@ func (c *Client) ParentOf(ctx context.Context, key string) (Parent, error) {
 	}
 	return Parent{Key: r.Fields.Parent.Key, Summary: r.Fields.Parent.Fields.Summary}, nil
 }
+
+// Count returns how many issues match jql, from the approximate-count
+// endpoint (search/jql returns no total). Jira requires bounded JQL here,
+// and the count may lag very recent changes. A response without a count is
+// an error, never a silent 0.
+func (c *Client) Count(ctx context.Context, jql string) (int, error) {
+	var r struct {
+		Count *int `json:"count"`
+	}
+	if err := c.do(ctx, http.MethodPost, "/rest/api/3/search/approximate-count", map[string]any{"jql": jql}, &r); err != nil {
+		return 0, err
+	}
+	if r.Count == nil {
+		return 0, fmt.Errorf("jira: approximate-count: response has no count")
+	}
+	return *r.Count, nil
+}

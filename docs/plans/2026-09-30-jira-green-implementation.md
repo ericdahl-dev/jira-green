@@ -3739,6 +3739,12 @@ Decisions made after this plan was written. The code is authoritative; this reco
   jira layer sets the story as the epic; the poller replaces it with the story's epic (cached
   per story, TTL `BoardRefreshInterval`, failures not cached, pruned when no subtask references
   the story). Fatal-vs-degrade matches changelog and comments.
+- **Epic progress.** `jira.API` gained `Count(jql) (int, error)` over
+  `search/approximate-count`. The poller fills `Snapshot.EpicProgress map[string]model.Progress`
+  (`{Done, Total}`), cached per epic for `BoardRefreshInterval`. It lives on the snapshot, not on
+  `model.EpicGroup`, so `ByEpic` stays a pure function of the cards and its signature does not
+  change; the list renderer looks progress up by `group.Key`. A non-fatal count error means no
+  entry (never 0/0), and is retried next poll. A stale snapshot keeps the last progress.
 
 ## Out of scope for v1
 

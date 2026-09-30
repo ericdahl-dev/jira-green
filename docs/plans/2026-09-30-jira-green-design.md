@@ -107,6 +107,16 @@ the story hides the subtask. A failed lookup follows the usual rule: a 401, 429,
 context fails the poll; anything else marks the card data-incomplete and leaves it grouped under
 its story.
 
+**Epic progress.** A list header shows done/total child issues for its epic
+(`▼ 🔴 Discovery epic  3/8  Mine 2  Waiting 1`). For each epic in the snapshot the poller counts
+`parent = "EPIC"` and `parent = "EPIC" AND statusCategory = Done` with
+`POST /rest/api/3/search/approximate-count` (`{"jql": ...}` → `{"count": N}`; `search/jql`
+returns no total). Counts are cached per epic for the board refresh interval (default 10m), not
+refetched every poll, and are exposed as `Snapshot.EpicProgress[epicKey]`. A 401, 429, or
+cancelled context fails the poll; any other count error leaves that epic with no progress shown,
+never a wrong number. No epic, and a story standing in for an unresolved subtask epic, show
+none.
+
 ## Keys
 
 | Key | Action |

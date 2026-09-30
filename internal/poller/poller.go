@@ -20,8 +20,12 @@ import (
 type Snapshot struct {
 	Columns []model.Column
 	Cards   []model.Card
-	At      time.Time
-	Err     error
+	// EpicProgress is done/total child issues per epic key in Cards. An epic
+	// whose count failed has no entry, so a view shows nothing rather than
+	// a wrong number.
+	EpicProgress map[string]model.Progress
+	At           time.Time
+	Err          error
 	// AuthFailed is set on a 401: the credentials are bad and polling stops.
 	AuthFailed bool
 	// RetryAfter is the server's requested backoff after a 429; Start waits
@@ -46,7 +50,14 @@ type Poller struct {
 	changelogs map[string]clEntry
 	comments   map[string]cmEntry
 	epics      map[string]epicEntry // by story key
+	progress   map[string]progEntry // by epic key
 	last       Snapshot
+}
+
+// progEntry caches an epic's child counts for BoardRefreshInterval.
+type progEntry struct {
+	at   time.Time
+	prog model.Progress
 }
 
 // epicEntry caches a story's epic for BoardRefreshInterval: a story rarely
@@ -74,7 +85,7 @@ type clEntry struct {
 func New(cfg *config.Config, api jira.API) *Poller {
 	return &Poller{
 		cfg: cfg, api: api, now: time.Now, after: time.After, changelogs: map[string]clEntry{}, comments: map[string]cmEntry{},
-		epics: map[string]epicEntry{}, refresh: make(chan struct{}, 1),
+		epics: map[string]epicEntry{}, progress: map[string]progEntry{}, refresh: make(chan struct{}, 1),
 	}
 }
 
@@ -97,11 +108,11 @@ func (p *Poller) PollOnce(ctx context.Context) Snapshot {
 	return snap
 }
 
-// staleFrom keeps the last good cards, columns, and time, and marks the
-// cards stale. Worst keeps a red or yellow light, so a network blip does not
-// hide a problem.
+// staleFrom keeps the last good cards, columns, epic progress, and time, and
+// marks the cards stale. Worst keeps a red or yellow light, so a network blip
+// does not hide a problem.
 func (p *Poller) staleFrom(err error) Snapshot {
-	s := Snapshot{Columns: p.last.Columns, At: p.last.At, Err: err}
+	s := Snapshot{Columns: p.last.Columns, EpicProgress: p.last.EpicProgress, At: p.last.At, Err: err}
 	for _, c := range p.last.Cards {
 		c.Light = model.Worst(c.Light, model.Stale)
 		s.Cards = append(s.Cards, c)
@@ -186,7 +197,57 @@ func (p *Poller) fetch(ctx context.Context, now time.Time) (Snapshot, error) {
 	maps.DeleteFunc(p.changelogs, func(k string, _ clEntry) bool { return !seen[k] })
 	maps.DeleteFunc(p.comments, func(k string, _ cmEntry) bool { return !seen[k] })
 	maps.DeleteFunc(p.epics, func(k string, _ epicEntry) bool { return !stories[k] })
-	return Snapshot{Columns: p.cols, Cards: cards, At: now}, nil
+	progress, err := p.epicProgress(ctx, cards, now)
+	if err != nil {
+		return Snapshot{}, err
+	}
+	return Snapshot{Columns: p.cols, Cards: cards, EpicProgress: progress, At: now}, nil
+}
+
+// epicProgress counts done and total child issues for each epic the cards
+// belong to. Counts are cached per epic for BoardRefreshInterval; entries
+// for epics no longer on any card are dropped.
+func (p *Poller) epicProgress(ctx context.Context, cards []model.Card, now time.Time) (map[string]model.Progress, error) {
+	out := map[string]model.Progress{}
+	for _, c := range cards {
+		key := c.EpicKey
+		// A subtask whose epic lookup failed stands under its story; the
+		// story's child count is not an epic's progress.
+		if key == "" || key == c.ParentKey {
+			continue
+		}
+		if _, ok := out[key]; ok {
+			continue
+		}
+		if e, ok := p.progress[key]; ok && now.Sub(e.at) < p.cfg.BoardRefreshInterval() {
+			out[key] = e.prog
+			continue
+		}
+		pr, err := p.countChildren(ctx, key)
+		switch {
+		case fatal(err):
+			return nil, err
+		case err != nil:
+			continue // no entry, never a wrong number; retried next poll
+		}
+		p.progress[key] = progEntry{at: now, prog: pr}
+		out[key] = pr
+	}
+	maps.DeleteFunc(p.progress, func(k string, _ progEntry) bool { _, ok := out[k]; return !ok })
+	return out, nil
+}
+
+// countChildren counts an epic's child issues, total and done.
+func (p *Poller) countChildren(ctx context.Context, epic string) (model.Progress, error) {
+	total, err := p.api.Count(ctx, fmt.Sprintf("parent = %q", epic))
+	if err != nil {
+		return model.Progress{}, err
+	}
+	done, err := p.api.Count(ctx, fmt.Sprintf("parent = %q AND statusCategory = Done", epic))
+	if err != nil {
+		return model.Progress{}, err
+	}
+	return model.Progress{Done: done, Total: total}, nil
 }
 
 // mutedParent reports whether the issue's epic, or a subtask's story, is

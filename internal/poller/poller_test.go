@@ -3,6 +3,7 @@ package poller_test
 import (
 	"context"
 	"errors"
+	"maps"
 	"os"
 	"path/filepath"
 	"slices"
@@ -35,6 +36,9 @@ type fake struct {
 	parents       map[string]jira.Parent // ParentOf answers, by story key
 	parentHits    map[string]int
 	parentErr     map[string]error
+	counts        map[string]int // Count answers, by JQL
+	countHits     map[string]int
+	countErr      map[string]error
 	// searching, when set, makes Search signal it and then block until ctx
 	// is done, returning ctx.Err().
 	searching chan struct{}
@@ -45,6 +49,7 @@ func newFake() *fake {
 		byJQL: map[string][]model.Issue{}, changelogs: map[string][]model.StatusChange{}, changelogHits: map[string]int{},
 		comments: map[string][]model.Comment{}, commentHits: map[string]int{}, changelogErr: map[string]error{},
 		parents: map[string]jira.Parent{}, parentHits: map[string]int{}, parentErr: map[string]error{},
+		counts: map[string]int{}, countHits: map[string]int{}, countErr: map[string]error{},
 	}
 }
 
@@ -96,6 +101,16 @@ func (f *fake) StatusChanges(_ context.Context, key string) ([]model.StatusChang
 		return nil, err
 	}
 	return f.changelogs[key], nil
+}
+
+func (f *fake) Count(_ context.Context, jql string) (int, error) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	f.countHits[jql]++
+	if err := f.countErr[jql]; err != nil {
+		return 0, err
+	}
+	return f.counts[jql], nil
 }
 
 func (f *fake) ParentOf(_ context.Context, key string) (jira.Parent, error) {
@@ -874,5 +889,137 @@ func TestPollMutedEpicOrStoryHidesItsSubtasks(t *testing.T) {
 	snap := newPoller(c, f, &now).PollOnce(context.Background())
 	if len(snap.Cards) != 1 || snap.Cards[0].Key != "ABC-33" {
 		t.Fatalf("want only ABC-33 (epic ABC-100 and story ABC-22 muted), got %+v", snap.Cards)
+	}
+}
+
+const (
+	authTotal = `parent = "ABC-100"`
+	authDone  = `parent = "ABC-100" AND statusCategory = Done`
+)
+
+func TestPollCountsEpicProgress(t *testing.T) {
+	c := cfg(t, "")
+	f := newFake()
+	f.byJQL[c.MineJQL()] = []model.Issue{
+		{Key: "ABC-1", StatusID: "1", Created: t0, Updated: t0, EpicKey: "ABC-100", EpicSummary: "Auth"},
+		{Key: "ABC-2", StatusID: "1", Created: t0, Updated: t0},
+	}
+	f.counts[authTotal], f.counts[authDone] = 5, 2
+	now := t0
+	snap := newPoller(c, f, &now).PollOnce(context.Background())
+	if snap.Err != nil {
+		t.Fatal(snap.Err)
+	}
+	want := map[string]model.Progress{"ABC-100": {Done: 2, Total: 5}}
+	if !maps.Equal(snap.EpicProgress, want) {
+		t.Fatalf("EpicProgress %v, want %v", snap.EpicProgress, want)
+	}
+}
+
+func TestPollCachesEpicProgressUntilTheRefreshInterval(t *testing.T) {
+	c := cfg(t, "[settings]\n  board_refresh_interval_seconds = 600\n")
+	f := newFake()
+	f.byJQL[c.MineJQL()] = []model.Issue{
+		{Key: "ABC-1", StatusID: "1", Created: t0, Updated: t0, EpicKey: "ABC-100"},
+		{Key: "ABC-2", StatusID: "1", Created: t0, Updated: t0, EpicKey: "ABC-100"},
+	}
+	f.counts[authTotal], f.counts[authDone] = 5, 2
+	now := t0
+	p := newPoller(c, f, &now)
+
+	p.PollOnce(context.Background())
+	f.counts[authDone] = 3 // changes, but inside the interval the cache holds
+	now = t0.Add(9 * time.Minute)
+	snap := p.PollOnce(context.Background())
+	if f.countHits[authTotal] != 1 || f.countHits[authDone] != 1 {
+		t.Fatalf("inside the interval: want 1 count each, got total %d done %d", f.countHits[authTotal], f.countHits[authDone])
+	}
+	if snap.EpicProgress["ABC-100"] != (model.Progress{Done: 2, Total: 5}) {
+		t.Errorf("cached progress %v", snap.EpicProgress)
+	}
+
+	now = t0.Add(10 * time.Minute)
+	snap = p.PollOnce(context.Background())
+	if f.countHits[authTotal] != 2 || f.countHits[authDone] != 2 {
+		t.Fatalf("at the interval: want 2 counts each, got total %d done %d", f.countHits[authTotal], f.countHits[authDone])
+	}
+	if snap.EpicProgress["ABC-100"] != (model.Progress{Done: 3, Total: 5}) {
+		t.Errorf("refreshed progress %v", snap.EpicProgress)
+	}
+}
+
+func TestPollEpicCountErrorMeansNoProgressNotZero(t *testing.T) {
+	c := cfg(t, "")
+	f := newFake()
+	f.byJQL[c.MineJQL()] = []model.Issue{
+		{Key: "ABC-1", StatusID: "1", Created: t0, Updated: t0, EpicKey: "ABC-100"},
+		{Key: "ABC-3", StatusID: "1", Created: t0, Updated: t0, EpicKey: "ABC-300"},
+	}
+	f.counts[authTotal] = 5
+	f.countErr[authDone] = &jira.APIError{Status: 400}
+	f.counts[`parent = "ABC-300"`], f.counts[`parent = "ABC-300" AND statusCategory = Done`] = 4, 4
+	now := t0
+	p := newPoller(c, f, &now)
+	snap := p.PollOnce(context.Background())
+	if snap.Err != nil {
+		t.Fatalf("a 400 on one count failed the poll: %v", snap.Err)
+	}
+	if pr, ok := snap.EpicProgress["ABC-100"]; ok {
+		t.Errorf("failed count gave progress %v, want no entry", pr)
+	}
+	if snap.EpicProgress["ABC-300"] != (model.Progress{Done: 4, Total: 4}) {
+		t.Errorf("other epic progress %v", snap.EpicProgress)
+	}
+	if snap.Cards[0].Light != model.Green {
+		t.Errorf("a count failure changed the card: %v %q", snap.Cards[0].Light, snap.Cards[0].DecodeErrors)
+	}
+
+	delete(f.countErr, authDone)
+	f.counts[authDone] = 2
+	if snap = p.PollOnce(context.Background()); snap.EpicProgress["ABC-100"] != (model.Progress{Done: 2, Total: 5}) {
+		t.Errorf("a failed count was cached: next poll progress %v", snap.EpicProgress)
+	}
+}
+
+func TestPollEpicCountRateLimitOrAuthFailsThePoll(t *testing.T) {
+	for _, err := range []error{
+		&jira.APIError{Status: 429, RetryAfter: 30 * time.Second},
+		&jira.APIError{Status: 401},
+		context.DeadlineExceeded,
+	} {
+		c := cfg(t, "")
+		f := newFake()
+		f.byJQL[c.MineJQL()] = []model.Issue{{Key: "ABC-1", StatusID: "1", Created: t0, Updated: t0, EpicKey: "ABC-100"}}
+		f.countErr[authTotal] = err
+		now := t0
+		if snap := newPoller(c, f, &now).PollOnce(context.Background()); !errors.Is(snap.Err, err) {
+			t.Errorf("count %v: snapshot Err = %v, want it propagated", err, snap.Err)
+		}
+	}
+}
+
+func TestPollNoProgressForAStoryStandingInAsEpic(t *testing.T) {
+	c := cfg(t, "")
+	f := newFake()
+	f.byJQL[c.MineJQL()] = []model.Issue{subtask("ABC-13", "ABC-12")}
+	f.parentErr["ABC-12"] = &jira.APIError{Status: 500}
+	now := t0
+	snap := newPoller(c, f, &now).PollOnce(context.Background())
+	if len(snap.EpicProgress) != 0 || len(f.countHits) != 0 {
+		t.Fatalf("counted the fallback story as an epic: progress %v counts %v", snap.EpicProgress, f.countHits)
+	}
+}
+
+func TestPollErrorKeepsLastEpicProgress(t *testing.T) {
+	c := cfg(t, "")
+	f := newFake()
+	f.byJQL[c.MineJQL()] = []model.Issue{{Key: "ABC-1", StatusID: "1", Created: t0, Updated: t0, EpicKey: "ABC-100"}}
+	f.counts[authTotal], f.counts[authDone] = 5, 2
+	now := t0
+	p := newPoller(c, f, &now)
+	p.PollOnce(context.Background())
+	f.setErr(errors.New("boom"))
+	if snap := p.PollOnce(context.Background()); snap.EpicProgress["ABC-100"] != (model.Progress{Done: 2, Total: 5}) {
+		t.Fatalf("stale snapshot progress %v, want the last good one kept", snap.EpicProgress)
 	}
 }

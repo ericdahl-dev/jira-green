@@ -324,3 +324,27 @@ func TestParentOfNoParent(t *testing.T) {
 		t.Fatalf("%+v %v, want zero Parent", p, err)
 	}
 }
+
+func TestCount(t *testing.T) {
+	c := newTest(t, func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != http.MethodPost || r.URL.Path != "/rest/api/3/search/approximate-count" {
+			t.Errorf("%s %s", r.Method, r.URL.Path)
+		}
+		var body map[string]any
+		if err := json.NewDecoder(r.Body).Decode(&body); err != nil || body["jql"] != `parent = "ABC-100"` || len(body) != 1 {
+			t.Errorf("body %v err %v", body, err)
+		}
+		_, _ = w.Write([]byte(`{"count":7}`))
+	})
+	n, err := c.Count(context.Background(), `parent = "ABC-100"`)
+	if err != nil || n != 7 {
+		t.Fatalf("%d %v", n, err)
+	}
+}
+
+func TestCountWithoutACountIsAnError(t *testing.T) {
+	c := newTest(t, func(w http.ResponseWriter, r *http.Request) { _, _ = w.Write([]byte(`{}`)) })
+	if n, err := c.Count(context.Background(), "project = ABC"); err == nil {
+		t.Fatalf("got %d, want an error, not a silent 0", n)
+	}
+}
