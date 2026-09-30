@@ -3,10 +3,14 @@ package jira_test
 import (
 	"context"
 	"errors"
+	"fmt"
 	"net/http"
 	"net/http/httptest"
+	"slices"
+	"strings"
 	"testing"
 	"time"
+	"unicode/utf8"
 
 	"github.com/ericdahl-dev/jira-green/internal/jira"
 )
@@ -78,5 +82,60 @@ func TestForbiddenIsNotAuth(t *testing.T) {
 	_, err := c.Myself(context.Background())
 	if err == nil || jira.IsAuth(err) {
 		t.Fatalf("403 should be an error but not an auth error, got %v", err)
+	}
+}
+
+func TestAPIErrorSummarizesJiraEnvelope(t *testing.T) {
+	body := `{"errorMessages":["The JQL is bad."],"errors":{"summary":"required","assignee":"unknown user"}}`
+	c := newTest(t, func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusBadRequest)
+		_, _ = w.Write([]byte(body))
+	})
+	_, err := c.Myself(context.Background())
+	var ae *jira.APIError
+	if !errors.As(err, &ae) {
+		t.Fatalf("got %v", err)
+	}
+	want := []string{"The JQL is bad.", "assignee: unknown user", "summary: required"}
+	if !slices.Equal(ae.Messages, want) {
+		t.Errorf("messages %q, want %q", ae.Messages, want)
+	}
+	if got := err.Error(); got != "jira: HTTP 400: The JQL is bad.; assignee: unknown user; summary: required" {
+		t.Errorf("Error() = %q", got)
+	}
+	if ae.Body != body {
+		t.Errorf("raw body %q", ae.Body)
+	}
+}
+
+func TestAPIErrorHTMLBodyUsesStatusText(t *testing.T) {
+	body := "<html><body><h1>502 Bad Gateway</h1></body></html>"
+	c := newTest(t, func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusBadGateway)
+		_, _ = w.Write([]byte(body))
+	})
+	_, err := c.Myself(context.Background())
+	var ae *jira.APIError
+	if !errors.As(err, &ae) || ae.Body != body || len(ae.Messages) != 0 {
+		t.Fatalf("got %#v", err)
+	}
+	if got := err.Error(); got != "jira: HTTP 502 Bad Gateway" {
+		t.Errorf("Error() = %q", got)
+	}
+}
+
+func TestAPIErrorTruncatesLongMessages(t *testing.T) {
+	long := strings.Repeat("é", 500)
+	c := newTest(t, func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusBadRequest)
+		_, _ = fmt.Fprintf(w, `{"errorMessages":[%q]}`, long)
+	})
+	_, err := c.Myself(context.Background())
+	got := err.Error()
+	if n := utf8.RuneCountInString(got); n > 205 || !strings.HasPrefix(got, "jira: HTTP 400: éé") {
+		t.Errorf("Error() is %d runes: %q", n, got)
+	}
+	if !utf8.ValidString(got) {
+		t.Errorf("truncation split a rune: %q", got)
 	}
 }

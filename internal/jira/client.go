@@ -64,6 +64,7 @@ func (c *Client) do(ctx context.Context, method, path string, body, out any) err
 		b, _ := io.ReadAll(io.LimitReader(resp.Body, 2048))
 		return &APIError{
 			Status:     resp.StatusCode,
+			Messages:   errorMessages(b),
 			Body:       strings.TrimSpace(string(b)),
 			RetryAfter: parseRetryAfter(resp.Header.Get("Retry-After")),
 		}

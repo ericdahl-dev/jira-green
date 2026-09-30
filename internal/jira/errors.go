@@ -1,22 +1,60 @@
 package jira
 
 import (
+	"encoding/json"
 	"errors"
 	"fmt"
+	"maps"
 	"net/http"
+	"slices"
 	"strconv"
+	"strings"
 	"time"
 )
 
 // APIError is a non-2xx response.
 type APIError struct {
-	Status     int
+	Status int
+	// Messages is Jira's error envelope flattened: errorMessages first, then
+	// "field: msg" for each entry of errors, sorted by field.
+	Messages []string
+	// Body is the raw (size-limited) response body, kept for debugging.
 	Body       string
 	RetryAfter time.Duration
 }
 
+// maxErrorLen caps Error() so a verbose Jira response fits a status line.
+const maxErrorLen = 200
+
+// Error is "jira: HTTP 400: msg1; field: msg2", cut to about 200
+// characters, or "jira: HTTP 502 Bad Gateway" when the body had no Jira
+// error envelope (an HTML proxy page, say).
 func (e *APIError) Error() string {
-	return fmt.Sprintf("jira: HTTP %d: %s", e.Status, e.Body)
+	if len(e.Messages) == 0 {
+		return strings.TrimSpace(fmt.Sprintf("jira: HTTP %d %s", e.Status, http.StatusText(e.Status)))
+	}
+	s := fmt.Sprintf("jira: HTTP %d: %s", e.Status, strings.Join(e.Messages, "; "))
+	if r := []rune(s); len(r) > maxErrorLen {
+		s = string(r[:maxErrorLen-1]) + "…"
+	}
+	return s
+}
+
+// errorMessages parses Jira's {"errorMessages":[...],"errors":{...}}
+// envelope. It returns nil when body is not such an envelope.
+func errorMessages(body []byte) []string {
+	var env struct {
+		ErrorMessages []string          `json:"errorMessages"`
+		Errors        map[string]string `json:"errors"`
+	}
+	if json.Unmarshal(body, &env) != nil {
+		return nil
+	}
+	out := slices.Clone(env.ErrorMessages)
+	for _, k := range slices.Sorted(maps.Keys(env.Errors)) {
+		out = append(out, k+": "+env.Errors[k])
+	}
+	return out
 }
 
 // IsAuth reports whether err is a 401 Unauthorized: the credentials are bad,
