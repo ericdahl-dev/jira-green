@@ -516,13 +516,15 @@ func (d Dashboard) statusLine() string {
 	if d.flash != "" {
 		parts = append([]string{d.flash}, parts...)
 	}
+	line := dimStyle.Render(strings.Join(parts, "  ·  "))
+	// A problem leads in color, not dim, so it is not mistaken for a hint.
 	switch {
 	case d.snap.AuthFailed:
-		parts = append([]string{"token rejected - fix the token and restart"}, parts...)
+		line = errStyle.Render("token rejected - fix the token and restart") + dimStyle.Render("  ·  ") + line
 	case d.snap.Err != nil:
-		parts = append([]string{model.Stale.Emoji() + " stale: " + d.snap.Err.Error()}, parts...)
+		line = warnStyle.Render(model.Stale.Emoji()+" stale: "+d.snap.Err.Error()) + dimStyle.Render("  ·  ") + line
 	}
-	return truncate(dimStyle.Render(strings.Join(parts, "  ·  ")), d.width)
+	return truncate(line, d.width)
 }
 
 // lines splits rendered output into lines, dropping the final newline.

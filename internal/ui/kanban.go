@@ -22,6 +22,8 @@ var (
 	selStyle  = lipgloss.NewStyle().Reverse(true)
 	dimStyle  = lipgloss.NewStyle().Faint(true)
 	headStyle = lipgloss.NewStyle().Bold(true)
+	errStyle  = lipgloss.NewStyle().Foreground(lipgloss.Color("1")) // red
+	warnStyle = lipgloss.NewStyle().Foreground(lipgloss.Color("3")) // yellow
 )
 
 // visibleLanes are the lanes the kanban draws, in order. Backlog and Done

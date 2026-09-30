@@ -8,6 +8,7 @@ import (
 
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/lipgloss"
+	"github.com/muesli/termenv"
 
 	"github.com/ericdahl-dev/jira-green/internal/model"
 	"github.com/ericdahl-dev/jira-green/internal/poller"
@@ -118,6 +119,23 @@ func TestStatusLineTagsAnUnscopedBoard(t *testing.T) {
 	}
 	if got := status(loaded(t, "kanban")); strings.Contains(got, "unscoped") {
 		t.Errorf("a scoped board is tagged: %q", got)
+	}
+}
+
+func TestStatusLineColorsProblems(t *testing.T) {
+	lipgloss.SetColorProfile(termenv.ANSI)
+	defer lipgloss.SetColorProfile(termenv.Ascii)
+	d := loaded(t, "kanban")
+	d, _ = d.Update(poller.Snapshot{Columns: fxCols, Cards: fxCards(), At: fxAt, Err: errors.New("jira: HTTP 502")})
+	if got := status(d); !strings.HasPrefix(got, "\x1b[33m⚪ stale") {
+		t.Errorf("stale segment is not yellow: %q", got)
+	}
+	d, _ = d.Update(poller.Snapshot{Err: errors.New("jira: HTTP 401"), AuthFailed: true})
+	if got := status(d); !strings.HasPrefix(got, "\x1b[31mtoken rejected") {
+		t.Errorf("auth segment is not red: %q", got)
+	}
+	if got := status(loaded(t, "kanban")); !strings.HasPrefix(got, "\x1b[2mupdated") {
+		t.Errorf("the rest stays dim: %q", got)
 	}
 }
 
