@@ -86,8 +86,16 @@ func DefaultPath() string {
 
 func Load(path string) (*Config, error) {
 	var c Config
-	if _, err := toml.DecodeFile(path, &c); err != nil {
+	md, err := toml.DecodeFile(path, &c)
+	if err != nil {
 		return nil, fmt.Errorf("read %s: %w", path, err)
+	}
+	if undecoded := md.Undecoded(); len(undecoded) > 0 {
+		keys := make([]string, len(undecoded))
+		for i, k := range undecoded {
+			keys[i] = k.String()
+		}
+		return nil, fmt.Errorf("%s: unknown key(s): %s", path, strings.Join(keys, ", "))
 	}
 	c.path = path
 	if err := c.applyDefaultsAndValidate(); err != nil {

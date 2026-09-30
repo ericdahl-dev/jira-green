@@ -4,6 +4,7 @@ import (
 	"os"
 	"path/filepath"
 	"reflect"
+	"strings"
 	"testing"
 	"time"
 )
@@ -262,5 +263,19 @@ func TestThresholdsSaveRoundTrip(t *testing.T) {
 	got, _ := c2.Rules("")
 	if !reflect.DeepEqual(got, want) {
 		t.Errorf("after save got %+v, want %+v", got.Thresholds, want.Thresholds)
+	}
+}
+
+func TestLoadRejectsUnknownKey(t *testing.T) {
+	_, err := Load(write(t, minimal+"  token_cmd = \"pass jira\"\n"))
+	if err == nil || !strings.Contains(err.Error(), "jira.token_cmd") {
+		t.Errorf("want unknown-key error naming jira.token_cmd, got %v", err)
+	}
+}
+
+func TestLoadRejectsMisplacedMuted(t *testing.T) {
+	_, err := Load(write(t, minimal+"muted = [\"ABC-9\"]\n"))
+	if err == nil || !strings.Contains(err.Error(), "jira.muted") {
+		t.Errorf("want unknown-key error naming jira.muted, got %v", err)
 	}
 }

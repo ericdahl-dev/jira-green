@@ -994,6 +994,12 @@ Port the structure from `../coolify-green/internal/config/config.go`, keeping `L
 `applyDefaultsAndValidate`, `Save`, `ResolveToken`, and `WriteStarter`. The schema changes to a
 single Jira site.
 
+> **Note (decided after implementation):** Threshold defaults merge per column. The defaults
+> always apply, a user `[thresholds.X]` table replaces only column X, and a table with neither
+> `yellow` nor `red` disables that column. `Load` also rejects unknown keys through
+> `md.Undecoded()` (for example `unknown key(s): jira.token_cmd`), which catches typos and a
+> top-level key such as `muted` written below the `[jira]` table.
+
 **Files:**
 - Create: `internal/config/config.go`
 - Test: `internal/config/config_test.go`
