@@ -8,6 +8,13 @@ import (
 	"time"
 )
 
+// Threshold is the age-in-status at which a card turns yellow and red.
+// A zero value disables that level.
+type Threshold struct {
+	Yellow time.Duration
+	Red    time.Duration
+}
+
 var dayPart = regexp.MustCompile(`^(\d+)d`)
 
 // ParseAge parses a duration that may start with a whole number of days,

@@ -2,6 +2,35 @@ package model
 
 import "time"
 
+// Issue is a Jira issue reduced to what the health model needs. The jira
+// package builds these; model never sees API JSON.
+type Issue struct {
+	Key          string
+	Summary      string
+	URL          string
+	StatusID     string
+	StatusName   string
+	AssigneeID   string
+	AssigneeName string
+	EpicKey      string
+	EpicSummary  string
+	Labels       []string
+	Flagged      bool
+	Created      time.Time
+	Updated      time.Time
+	// StatusSince is when the issue entered its current status. The poller
+	// fills it from the changelog; zero means "not yet known".
+	StatusSince time.Time
+	Comments    []Comment
+}
+
+// Comment is one issue comment, with the account IDs it @-mentions.
+type Comment struct {
+	AuthorID string
+	Created  time.Time
+	Mentions []string
+}
+
 // StatusChange is one status transition from the changelog.
 type StatusChange struct {
 	At   time.Time
@@ -18,11 +47,4 @@ func StatusSince(created time.Time, currentID string, changes []StatusChange) ti
 		}
 	}
 	return since
-}
-
-// Comment is one issue comment, with the account IDs it @-mentions.
-type Comment struct {
-	AuthorID string
-	Created  time.Time
-	Mentions []string
 }
