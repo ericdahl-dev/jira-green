@@ -534,3 +534,53 @@ func TestBInHelpAndHints(t *testing.T) {
 		t.Errorf("status hint %q", got)
 	}
 }
+
+// many is n Mine cards in To Do, oldest first, so the order is fixed.
+func many(n int) []model.Card {
+	var cs []model.Card
+	for i := range n {
+		cs = append(cs, card("ABC-"+itoa(5000+i), "Card number "+itoa(i), "To Do", model.LaneMine, model.Green, time.Duration(n-i)*time.Hour, "Big", "Me"))
+	}
+	return cs
+}
+
+// scrolled loads n cards into a 120x20 dashboard and presses down 50 times.
+func scrolled(t *testing.T, view string, n int) ui.Dashboard {
+	t.Helper()
+	d := ui.NewDashboard(view, noOpen(t))
+	d, _ = d.Update(tea.WindowSizeMsg{Width: 120, Height: 20})
+	d, _ = d.Update(poller.Snapshot{Columns: fxCols, Cards: many(n), At: fxAt})
+	for range 50 {
+		d = press(d, "down")
+	}
+	return d
+}
+
+func TestKanbanScrollsToCursor(t *testing.T) {
+	d := scrolled(t, "kanban", 100)
+	ls := lines(d.View())
+	if len(ls) > 20 {
+		t.Errorf("%d lines for a 20-line terminal", len(ls))
+	}
+	if sel := selKey(d); sel != "ABC-5050" || lineWith(ls, ">🟢 "+sel) < 0 {
+		t.Errorf("selected %q is not on screen:\n%s", sel, strings.Join(ls, "\n"))
+	}
+	if !strings.Contains(ls[0], "To Do") || !strings.HasPrefix(ls[len(ls)-1], "updated") {
+		t.Errorf("the column header and status line stay:\n%s", strings.Join(ls, "\n"))
+	}
+}
+
+func TestListScrollsToCursor(t *testing.T) {
+	d := scrolled(t, "list", 100)
+	ls := lines(d.View())
+	if len(ls) > 20 {
+		t.Errorf("%d lines for a 20-line terminal", len(ls))
+	}
+	// Row 0 is the Big header, so 50 downs land on the 50th card.
+	if sel := selKey(d); sel != "ABC-5049" || !strings.HasPrefix(ls[lineWith(ls, sel)], ">") {
+		t.Errorf("selected %q is not on screen:\n%s", sel, strings.Join(ls, "\n"))
+	}
+	if !strings.HasPrefix(ls[len(ls)-1], "updated") {
+		t.Errorf("the status line stays:\n%s", strings.Join(ls, "\n"))
+	}
+}

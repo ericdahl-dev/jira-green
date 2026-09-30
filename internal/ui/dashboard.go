@@ -384,17 +384,24 @@ func (d Dashboard) View() string {
 	if d.showHelp {
 		return RenderHelp()
 	}
-	var body string
+	// Each view keeps its first lines (pinned) and scrolls the rest to fit
+	// the terminal above the status line, keeping the selection in view.
+	var pinned, ls []string
+	from, to := 0, 0
 	if d.listShown() {
-		body = RenderList(d.groups, d.collapsed, d.listSel, d.width, ListOptions{HiddenBacklog: d.hiddenBacklog})
 		if d.mode == ViewKanban {
 			hint := fmt.Sprintf("kanban needs %d cols - showing list", minColWidth*len(d.board.Columns))
-			body = dimStyle.Render(truncate(hint, d.width)) + "\n" + body
+			pinned = []string{dimStyle.Render(truncate(hint, d.width))}
 		}
+		ls = lines(RenderList(d.groups, d.collapsed, d.listSel, d.width, ListOptions{HiddenBacklog: d.hiddenBacklog}))
+		from, to = d.listSel, d.listSel+1
 	} else {
-		body = RenderKanban(d.board, d.cur, d.width, KanbanOptions{BacklogOpen: d.backlogOpen})
+		all, cl := kanbanLines(d.board, d.cur, d.width, KanbanOptions{BacklogOpen: d.backlogOpen})
+		pinned, ls = []string{all[0]}, all[1:] // the column header
+		from, to = cl-1, cl+2                  // a card is three lines
 	}
-	return strings.TrimSuffix(body, "\n") + "\n" + d.statusLine()
+	ls = append(pinned, window(ls, from, to, d.height-1-len(pinned))...)
+	return strings.Join(append(ls, d.statusLine()), "\n")
 }
 
 const keyHints = "←→↑↓ move  enter detail  t transition  o open  v view  d done  b backlog  r refresh  m manage  q quit  ? help"
@@ -413,6 +420,9 @@ func (d Dashboard) statusLine() string {
 	}
 	return truncate(dimStyle.Render(strings.Join(parts, "  ·  ")), d.width)
 }
+
+// lines splits rendered output into lines, dropping the final newline.
+func lines(s string) []string { return strings.Split(strings.TrimSuffix(s, "\n"), "\n") }
 
 // OpenBrowser opens u in the default browser without waiting for it.
 func OpenBrowser(u string) error {

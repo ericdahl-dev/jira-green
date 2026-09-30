@@ -28,6 +28,7 @@ type Manage struct {
 	err      error // the last failed save
 	changed  bool  // a mute was saved; the board needs a refresh
 	width    int
+	height   int
 	setMuted func(key string, muted bool) error
 }
 
@@ -65,7 +66,7 @@ func NewManage(groups []model.EpicGroup, muted []string, setMuted func(key strin
 // Update handles one message.
 func (m Manage) Update(msg tea.Msg) (Manage, tea.Cmd) {
 	if size, ok := msg.(tea.WindowSizeMsg); ok {
-		m.width = size.Width
+		m.width, m.height = size.Width, size.Height
 		return m, nil
 	}
 	k, ok := msg.(tea.KeyMsg)
@@ -104,11 +105,12 @@ func (m Manage) toggle() Manage {
 	return m
 }
 
-// View renders the manage screen.
+// View renders the manage screen. The rows scroll to fit the terminal
+// above the error and key hint, keeping the cursor in view.
 func (m Manage) View() string {
-	var sb strings.Builder
+	var rows []string
 	if len(m.rows) == 0 {
-		sb.WriteString("  nothing to mute yet - wait for the first poll\n")
+		rows = append(rows, "  nothing to mute yet - wait for the first poll")
 	}
 	for i, r := range m.rows {
 		mark := "✓"
@@ -126,11 +128,13 @@ func (m Manage) View() string {
 		if i == m.cursor {
 			line = selStyle.Render(line)
 		}
-		sb.WriteString(line + "\n")
+		rows = append(rows, line)
 	}
+	var tail []string
 	if m.err != nil {
-		sb.WriteString("\n" + truncate("  ⚠ "+m.err.Error(), m.width) + "\n")
+		tail = append(tail, "", truncate("  ⚠ "+m.err.Error(), m.width))
 	}
-	sb.WriteString("\n" + dimStyle.Render(truncate("↑↓ move  space mute/unmute  esc back", m.width)) + "\n")
-	return sb.String()
+	tail = append(tail, "", dimStyle.Render(truncate("↑↓ move  space mute/unmute  esc back", m.width)))
+	rows = window(rows, m.cursor, m.cursor+1, m.height-len(tail))
+	return strings.Join(append(rows, tail...), "\n") + "\n"
 }

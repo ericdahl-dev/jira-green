@@ -46,12 +46,20 @@ type KanbanOptions struct {
 
 // RenderKanban draws the board to fit width.
 func RenderKanban(b model.Board, cur Cursor, width int, opt KanbanOptions) string {
+	ls, _ := kanbanLines(b, cur, width, opt)
+	return strings.Join(ls, "\n") + "\n"
+}
+
+// kanbanLines is RenderKanban's lines, and the index of the selected card's
+// first line (-1 when no card is selected). Line 0 is the column header.
+func kanbanLines(b model.Board, cur Cursor, width int, opt KanbanOptions) ([]string, int) {
 	n := len(b.Columns)
 	if n == 0 {
-		return "no columns"
+		return []string{"no columns"}, -1
 	}
 	colW := max(minColWidth, (width-1)/n)
 	var sb strings.Builder
+	cursorLine, line := -1, 0
 
 	var head strings.Builder
 	for _, name := range b.Columns {
@@ -59,10 +67,12 @@ func RenderKanban(b model.Board, cur Cursor, width int, opt KanbanOptions) strin
 	}
 	// Trim before styling: the escape codes would hide the padding.
 	sb.WriteString(headStyle.Render(strings.TrimRight(head.String(), " ")) + "\n")
+	line++
 
 	for _, lane := range visibleLanes(b, true) {
 		if lane == model.LaneBacklog && !opt.BacklogOpen {
 			sb.WriteString(backlogRule(b, width) + "\n")
+			line++
 			continue
 		}
 		name := lane.String()
@@ -71,6 +81,7 @@ func RenderKanban(b model.Board, cur Cursor, width int, opt KanbanOptions) strin
 		}
 		title := fmt.Sprintf("─ %s %s (%d) ", b.LaneLight(lane).Emoji(), name, b.LaneCount(lane))
 		sb.WriteString(title + strings.Repeat("─", max(0, width-lipgloss.Width(title))) + "\n")
+		line++
 
 		depth := 0
 		for _, name := range b.Columns {
@@ -82,6 +93,9 @@ func RenderKanban(b model.Board, cur Cursor, width int, opt KanbanOptions) strin
 			for ci, name := range b.Columns {
 				cell := b.Cell(lane, name)
 				selected := cur.Lane == lane && cur.Col == ci && cur.Row == row && row < len(cell)
+				if selected {
+					cursorLine = line
+				}
 				var l [3]string
 				if row < len(cell) {
 					c := cell[row]
@@ -100,12 +114,14 @@ func RenderKanban(b model.Board, cur Cursor, width int, opt KanbanOptions) strin
 			for i := range lines {
 				sb.WriteString(strings.TrimRight(lines[i].String(), " ") + "\n")
 			}
+			line += len(lines)
 		}
 		if depth == 0 {
 			sb.WriteString(dimStyle.Render("  nothing here") + "\n")
+			line++
 		}
 	}
-	return sb.String()
+	return strings.Split(strings.TrimSuffix(sb.String(), "\n"), "\n"), cursorLine
 }
 
 // backlogRule is the collapsed Backlog: "─ 🟡 ▶ Backlog (N) ─── b to expand".

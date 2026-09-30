@@ -2,6 +2,7 @@ package ui_test
 
 import (
 	"errors"
+	"slices"
 	"strings"
 	"testing"
 
@@ -140,5 +141,22 @@ func TestManageFitsWidth(t *testing.T) {
 				t.Errorf("width %d: line %d is %d wide: %q", w, i, lipgloss.Width(l), l)
 			}
 		}
+	}
+}
+
+func TestManageScrollsToCursor(t *testing.T) {
+	m := ui.NewManage(model.ByEpic(many(100)), nil, nil)
+	m, _ = m.Update(tea.WindowSizeMsg{Width: 80, Height: 20})
+	m = pressManage(m, slices.Repeat([]string{"down"}, 50)...)
+	ls := lines(m.View())
+	if len(ls) > 20 {
+		t.Errorf("%d lines for a 20-line terminal", len(ls))
+	}
+	// Row 0 is the Big epic, so 50 downs land on the 50th card.
+	if at := lineWith(ls, "ABC-5049"); at < 0 || !strings.HasPrefix(ls[at], ">") {
+		t.Errorf("the cursor row is not on screen:\n%s", strings.Join(ls, "\n"))
+	}
+	if !strings.Contains(ls[len(ls)-1], "esc back") {
+		t.Errorf("the key hint stays:\n%s", strings.Join(ls, "\n"))
 	}
 }
