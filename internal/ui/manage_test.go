@@ -160,3 +160,25 @@ func TestManageScrollsToCursor(t *testing.T) {
 		t.Errorf("the key hint stays:\n%s", strings.Join(ls, "\n"))
 	}
 }
+
+func TestManageTakesTheDashboardSize(t *testing.T) {
+	// main builds Manage after the WindowSizeMsg, so the size comes along.
+	d := loaded(t, "kanban")
+	d, _ = d.Update(tea.WindowSizeMsg{Width: 40, Height: 12})
+	_, cmd := d.Update(key("m"))
+	msg := run(cmd).(ui.OpenManageMsg)
+	if msg.Width != 40 || msg.Height != 12 {
+		t.Fatalf("OpenManageMsg size %dx%d", msg.Width, msg.Height)
+	}
+	cards := append(fxCards(), many(30)...)
+	m := ui.NewManage(model.ByEpic(cards), nil, nil).WithSize(msg.Width, msg.Height)
+	ls := lines(m.View())
+	if len(ls) > 12 {
+		t.Errorf("%d lines for a 12-line terminal", len(ls))
+	}
+	for i, l := range ls {
+		if lipgloss.Width(l) > 40 {
+			t.Errorf("line %d is %d wide: %q", i, lipgloss.Width(l), l)
+		}
+	}
+}

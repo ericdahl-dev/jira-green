@@ -63,6 +63,17 @@ func NewManage(groups []model.EpicGroup, muted []string, setMuted func(key strin
 	return m
 }
 
+// WithSize sets the terminal size. main builds Manage after the
+// WindowSizeMsg was delivered, so it passes OpenManageMsg's size here. A
+// zero width keeps the 80-column default.
+func (m Manage) WithSize(width, height int) Manage {
+	if width > 0 {
+		m.width = width
+	}
+	m.height = height
+	return m
+}
+
 // Update handles one message.
 func (m Manage) Update(msg tea.Msg) (Manage, tea.Cmd) {
 	if size, ok := msg.(tea.WindowSizeMsg); ok {

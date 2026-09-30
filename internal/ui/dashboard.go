@@ -27,8 +27,12 @@ const (
 type RefreshMsg struct{}
 
 // OpenManageMsg asks main to show the manage screen. Groups are every card
-// of the latest snapshot, Done included, by epic.
-type OpenManageMsg struct{ Groups []model.EpicGroup }
+// of the latest snapshot, Done included, by epic. Width and Height are the
+// terminal's, for Manage.WithSize: the WindowSizeMsg came before Manage.
+type OpenManageMsg struct {
+	Groups        []model.EpicGroup
+	Width, Height int
+}
 
 // openFailedMsg reports that the browser could not be launched.
 type openFailedMsg struct{ err error }
@@ -158,8 +162,8 @@ func (d Dashboard) handleKey(k tea.KeyMsg) (Dashboard, tea.Cmd) {
 	case "r":
 		return d, func() tea.Msg { return RefreshMsg{} }
 	case "m":
-		groups := model.ByEpic(d.snap.Cards)
-		return d, func() tea.Msg { return OpenManageMsg{Groups: groups} }
+		msg := OpenManageMsg{Groups: model.ByEpic(d.snap.Cards), Width: d.width, Height: d.height}
+		return d, func() tea.Msg { return msg }
 	case "d":
 		d.showDone = !d.showDone
 		d.relayout()
