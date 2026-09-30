@@ -73,8 +73,11 @@ type Dashboard struct {
 }
 
 // NewDashboard starts in defaultView ("kanban" or "list"). openURL opens a
-// card in the browser; main passes OpenBrowser, tests a fake.
+// card in the browser; nil means OpenBrowser, and tests pass a fake.
 func NewDashboard(defaultView string, openURL func(string) error) Dashboard {
+	if openURL == nil {
+		openURL = OpenBrowser
+	}
 	// 80 columns until the first WindowSizeMsg says otherwise.
 	d := Dashboard{openURL: openURL, collapsed: map[string]bool{}, width: 80}
 	if defaultView == "list" {
