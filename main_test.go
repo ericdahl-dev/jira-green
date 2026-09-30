@@ -206,7 +206,8 @@ func newHarness(t *testing.T) *harness {
 			defer h.mu.Unlock()
 			h.events = append(h.events, e)
 		},
-		now: func() time.Time { return h.now },
+		now:     func() time.Time { return h.now },
+		openURL: func(string) error { return nil },
 	})
 	return h
 }

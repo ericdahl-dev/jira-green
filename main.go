@@ -88,6 +88,7 @@ func runDashboard(cfg *config.Config, token string) error {
 	a := newApp(deps{
 		ctx: ctx, cancel: cancel, cfg: cfg, api: api,
 		snaps: p.Start(ctx), refresh: p.Refresh, dispatch: d.Dispatch, now: time.Now,
+		openURL: ui.OpenBrowser,
 	})
 	_, err := tea.NewProgram(a, tea.WithAltScreen()).Run()
 	return err
@@ -128,6 +129,7 @@ type deps struct {
 	refresh  func() // poller.Refresh
 	dispatch func(context.Context, alert.Event)
 	now      func() time.Time
+	openURL  func(string) error // ui.OpenBrowser
 }
 
 type screen int
@@ -152,7 +154,7 @@ type app struct {
 func newApp(d deps) app {
 	return app{
 		deps:      d,
-		dashboard: ui.NewDashboard(d.cfg.DefaultView(), nil),
+		dashboard: ui.NewDashboard(d.cfg.DefaultView(), d.openURL),
 		tracker:   alert.NewTracker(d.cfg.StuckAlertAfter()),
 		spinner:   spinner.New(spinner.WithSpinner(spinner.MiniDot)),
 	}
