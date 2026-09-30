@@ -51,9 +51,44 @@ func TestLayoutSortsWorstThenOldest(t *testing.T) {
 }
 
 func TestLayoutShowDone(t *testing.T) {
-	b := Layout(cols, nil, true)
+	cards := []Card{
+		{Issue: Issue{Key: "ABC-1"}, Column: "Done", Lane: LaneMine, Light: Red},
+		{Issue: Issue{Key: "ABC-2"}, Column: "In Progress", Lane: LaneMine, Light: Yellow},
+	}
+	b := Layout(cols, cards, true)
 	if b.Columns[len(b.Columns)-1] != "Done" {
 		t.Errorf("columns %v", b.Columns)
+	}
+	if b.LaneCount(LaneMine) != 2 || b.LaneLight(LaneMine) != Red {
+		t.Errorf("mine lane %d %v, want 2 red with Done shown", b.LaneCount(LaneMine), b.LaneLight(LaneMine))
+	}
+	if len(b.Cell(LaneMine, "Done")) != 1 {
+		t.Errorf("done cell %v", b.Cell(LaneMine, "Done"))
+	}
+}
+
+func TestLayoutHiddenDoneNotCounted(t *testing.T) {
+	cards := []Card{{Issue: Issue{Key: "ABC-1"}, Column: "Done", Lane: LaneMine, Light: Red}}
+	b := Layout(cols, cards, false)
+	if b.LaneLight(LaneMine) != Green || b.LaneCount(LaneMine) != 0 {
+		t.Errorf("mine lane %v %d, want green 0 with Done hidden", b.LaneLight(LaneMine), b.LaneCount(LaneMine))
+	}
+	if len(b.Cell(LaneMine, "Done")) != 0 {
+		t.Errorf("hidden done cell still holds %v", b.Cell(LaneMine, "Done"))
+	}
+}
+
+func TestLayoutUnknownColumnGoesToOther(t *testing.T) {
+	cards := []Card{{Issue: Issue{Key: "ABC-1"}, Column: "Backlog", Lane: LaneWaiting, Light: Yellow}}
+	b := Layout(cols, cards, false)
+	if got := b.Cell(LaneWaiting, OtherColumn); len(got) != 1 || got[0].Key != "ABC-1" {
+		t.Errorf("other cell %v", got)
+	}
+	if b.Columns[len(b.Columns)-1] != OtherColumn {
+		t.Errorf("columns %v, want Other appended", b.Columns)
+	}
+	if b.LaneCount(LaneWaiting) != 1 || b.LaneLight(LaneWaiting) != Yellow {
+		t.Errorf("waiting lane %d %v", b.LaneCount(LaneWaiting), b.LaneLight(LaneWaiting))
 	}
 }
 

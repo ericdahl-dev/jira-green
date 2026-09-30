@@ -65,17 +65,29 @@ func (b Board) LaneCount(l Lane) int {
 }
 
 // Layout places cards into cells. The last board column is treated as Done
-// and hidden unless showDone. OtherColumn is appended only when used.
+// and hidden unless showDone; cards in a hidden column are dropped, so lane
+// lights and counts reflect only what is visible. A card whose column is not
+// a board column goes to OtherColumn, which is appended only when used.
 func Layout(cols []Column, cards []Card, showDone bool) Board {
 	b := Board{cells: map[cellKey][]Card{}}
+	known := map[string]bool{}
+	hidden := ""
 	for i, c := range cols {
+		known[c.Name] = true
 		if i == len(cols)-1 && !showDone {
+			hidden = c.Name
 			continue
 		}
 		b.Columns = append(b.Columns, c.Name)
 	}
 	usedOther := false
 	for _, c := range cards {
+		if !known[c.Column] {
+			c.Column = OtherColumn
+		}
+		if hidden != "" && c.Column == hidden {
+			continue
+		}
 		if c.Column == OtherColumn {
 			usedOther = true
 		}
