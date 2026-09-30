@@ -28,12 +28,13 @@ type fake struct {
 	boardCalls    int
 	err           error // returned by Search when set
 	commentErr    error // returned by Comments when set
+	changelogErr  map[string]error
 }
 
 func newFake() *fake {
 	return &fake{
 		byJQL: map[string][]model.Issue{}, changelogs: map[string][]model.StatusChange{}, changelogHits: map[string]int{},
-		comments: map[string][]model.Comment{}, commentHits: map[string]int{},
+		comments: map[string][]model.Comment{}, commentHits: map[string]int{}, changelogErr: map[string]error{},
 	}
 }
 
@@ -75,6 +76,9 @@ func (f *fake) StatusChanges(_ context.Context, key string) ([]model.StatusChang
 	f.mu.Lock()
 	defer f.mu.Unlock()
 	f.changelogHits[key]++
+	if err := f.changelogErr[key]; err != nil {
+		return nil, err
+	}
 	return f.changelogs[key], nil
 }
 
@@ -453,5 +457,50 @@ func TestPollCachesCommentsUntilUpdatedChanges(t *testing.T) {
 	p.PollOnce(context.Background())
 	if f.commentHits["ABC-1"] != 2 {
 		t.Fatalf("Updated changed: want 2 comment fetches, got %d", f.commentHits["ABC-1"])
+	}
+}
+
+func TestPollChangelogErrorDegradesOnlyThatCard(t *testing.T) {
+	c := cfg(t, "")
+	f := newFake()
+	f.byJQL[c.MineJQL()] = []model.Issue{
+		{Key: "ABC-1", StatusID: "3", Created: t0, Updated: t0},
+		{Key: "ABC-2", StatusID: "3", Created: t0, Updated: t0},
+	}
+	f.changelogErr["ABC-1"] = &jira.APIError{Status: 404}
+	now := t0
+	p := newPoller(c, f, &now)
+	snap := p.PollOnce(context.Background())
+	if snap.Err != nil || len(snap.Cards) != 2 {
+		t.Fatalf("one bad changelog failed the poll: %+v", snap)
+	}
+	a, b := snap.Cards[0], snap.Cards[1]
+	if !a.StatusSince.IsZero() || len(a.DecodeErrors) != 1 || !strings.HasPrefix(a.DecodeErrors[0], "changelog: ") {
+		t.Errorf("ABC-1 since %v decode errors %q", a.StatusSince, a.DecodeErrors)
+	}
+	if a.Light != model.Stale || b.Light != model.Green || len(b.DecodeErrors) != 0 {
+		t.Errorf("lights %v %v, want stale then green", a.Light, b.Light)
+	}
+
+	p.PollOnce(context.Background())
+	if f.changelogHits["ABC-1"] != 2 {
+		t.Errorf("a failed changelog was cached: %d fetches, want 2", f.changelogHits["ABC-1"])
+	}
+}
+
+func TestPollChangelogRateLimitOrAuthFailsThePoll(t *testing.T) {
+	for _, err := range []error{
+		&jira.APIError{Status: 429, RetryAfter: 30 * time.Second},
+		&jira.APIError{Status: 401},
+		context.DeadlineExceeded,
+	} {
+		c := cfg(t, "")
+		f := newFake()
+		f.byJQL[c.MineJQL()] = []model.Issue{{Key: "ABC-1", StatusID: "3", Created: t0, Updated: t0}}
+		f.changelogErr["ABC-1"] = err
+		now := t0
+		if snap := newPoller(c, f, &now).PollOnce(context.Background()); !errors.Is(snap.Err, err) {
+			t.Errorf("changelog %v: snapshot Err = %v, want it propagated", err, snap.Err)
+		}
 	}
 }

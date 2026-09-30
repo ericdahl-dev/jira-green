@@ -141,10 +141,16 @@ func (p *Poller) fetch(ctx context.Context, now time.Time) (Snapshot, error) {
 			}
 			if l.lane != model.LaneDone {
 				since, err := p.statusSince(ctx, iss)
-				if err != nil {
+				switch {
+				case err == nil:
+					iss.StatusSince = since
+				case fatal(err):
 					return Snapshot{}, err
+				default:
+					// One bad changelog degrades only its card; StatusSince
+					// stays zero ("not yet known").
+					iss.DecodeErrors = append(iss.DecodeErrors, fmt.Sprintf("changelog: %v", err))
 				}
-				iss.StatusSince = since
 			}
 			col := model.ColumnFor(p.cols, iss.StatusID)
 			cards = append(cards, model.Evaluate(iss, col, l.lane, rules, now, false))
