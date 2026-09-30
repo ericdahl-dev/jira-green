@@ -143,8 +143,8 @@ func marker(selected bool) string {
 	return " "
 }
 
-// namesAssignee reports whether a view names c's assignee: Mine and Backlog
-// cards are mine.
+// namesAssignee reports whether a view names c's assignee. Only Waiting cards
+// belong to someone else; Mine, Backlog, and Done are all mine.
 func namesAssignee(c model.Card) bool {
 	return c.Lane == model.LaneWaiting && c.AssigneeName != ""
 }
