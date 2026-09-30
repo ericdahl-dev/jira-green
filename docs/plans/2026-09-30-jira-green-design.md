@@ -24,7 +24,7 @@ rollups, auto-polling, shipped through the `ericdahl-dev/tap` Homebrew cask.
 
 - Jira Cloud REST API, called directly (no shelling out to go-jira-cli).
 - Auth: email + API token. The token never lives in the config file; the config names an env
-  var (`token_env`) or a command (`token_cmd`), matching coolify-green.
+  var (`token_env`) or a command (`token_command`), matching coolify-green.
 - No site hostnames, board IDs, or project keys are committed to the repo. They live only in the
   user's local config.
 
@@ -132,7 +132,7 @@ internal/alert       Webhook signing and dedupe
 ## Error handling
 
 - Poll failure: keep last-known cards, mark them ⚪ stale, show a one-line error bar.
-- 401/403: stop polling and show "token rejected - check token_cmd" instead of retrying.
+- 401/403: stop polling and show "token rejected - check token_command" instead of retrying.
 - 429: back off according to `Retry-After`.
 - Failed transition: show Jira's error text in the picker; the card stays where it was.
 
@@ -158,7 +158,7 @@ goreleaser -> `ericdahl-dev/tap` cask, the same way as coolify-green:
 [jira]
   site = "https://example.atlassian.net"
   email = "me@example.com"
-  token_cmd = "security find-generic-password -s jira-green -w"
+  token_command = "security find-generic-password -s jira-green -w"
   board_id = 123
 
 [thresholds."In Progress"]
