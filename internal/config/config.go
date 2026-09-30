@@ -78,8 +78,9 @@ type Config struct {
 	Muted         []string       `toml:"muted,omitempty"` // issue or epic keys
 	Webhooks      []Webhook      `toml:"webhooks,omitempty"`
 
-	path string
-	mu   sync.RWMutex // guards Muted
+	path     string
+	warnings []string
+	mu       sync.RWMutex // guards Muted
 }
 
 // Default lane queries, used when [jql] leaves a key unset.
@@ -131,8 +132,17 @@ func Load(path string) (*Config, error) {
 	if err := c.validate(); err != nil {
 		return nil, fmt.Errorf("%s: %w", path, err)
 	}
+	// The file names a token_command and webhook secrets: only its owner
+	// should read it. Save tightens it to 0600; until then, say so.
+	if fi, err := os.Stat(path); err == nil && fi.Mode().Perm()&0o077 != 0 {
+		c.warnings = append(c.warnings, fmt.Sprintf("%s is readable by others (mode %04o) - run: chmod 600 %s", path, fi.Mode().Perm(), path))
+	}
 	return &c, nil
 }
+
+// Warnings are problems Load found that do not stop the app, for main to
+// print.
+func (c *Config) Warnings() []string { return slices.Clone(c.warnings) }
 
 // validate checks the values the user wrote. It writes nothing back except
 // normalising jira.site, so Save persists only what the user wrote; defaults

@@ -67,6 +67,9 @@ func run(args []string, stdout, stderr io.Writer) int {
 		_, _ = fmt.Fprintf(stderr, "jira-green: %v\n", err)
 		return 1
 	}
+	for _, w := range cfg.Warnings() {
+		_, _ = fmt.Fprintf(stderr, "jira-green: warning: %s\n", w)
+	}
 	token, err := config.ResolveToken(cfg.Jira)
 	if err != nil {
 		_, _ = fmt.Fprintf(stderr, "jira-green: %v\n", err)

@@ -684,3 +684,23 @@ func TestSaveStateKeepsASymlink(t *testing.T) {
 		t.Errorf("target view %q", got.View)
 	}
 }
+
+func TestLoadWarnsWhenOthersCanRead(t *testing.T) {
+	p := write(t, minimal)
+	c, err := config.Load(p)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if w := c.Warnings(); len(w) != 0 {
+		t.Errorf("0600 config warned: %q", w)
+	}
+	if err := os.Chmod(p, 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if c, err = config.Load(p); err != nil {
+		t.Fatal(err)
+	}
+	if w := c.Warnings(); len(w) != 1 || !strings.Contains(w[0], "readable by others") || !strings.Contains(w[0], "chmod 600") {
+		t.Errorf("0644 config warnings %q", w)
+	}
+}

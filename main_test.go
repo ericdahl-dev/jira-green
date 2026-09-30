@@ -94,6 +94,20 @@ func TestRunTokenUnresolved(t *testing.T) {
 	}
 }
 
+func TestRunPrintsConfigWarnings(t *testing.T) {
+	writeConfig(t, validConfig)
+	p := filepath.Join(os.Getenv("XDG_CONFIG_HOME"), "jira-green", "config.toml")
+	if err := os.Chmod(p, 0o644); err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv("JIRA_GREEN_TEST_TOKEN", "") // stop before the dashboard
+	var out bytes.Buffer
+	run(nil, &out, &out)
+	if !strings.Contains(out.String(), "jira-green: warning: "+p+" is readable by others") {
+		t.Errorf("out %q", out.String())
+	}
+}
+
 // fakeWizard replaces runWizard for one test and records its calls.
 type fakeWizard struct {
 	calls int
