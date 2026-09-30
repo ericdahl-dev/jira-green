@@ -484,3 +484,21 @@ func TestWriteStarterStatError(t *testing.T) {
 		t.Errorf("want an error naming %s from the existence check, got %v", p, err)
 	}
 }
+
+func TestBacklogJQLDefaultAndOverride(t *testing.T) {
+	c, err := config.Load(write(t, minimal))
+	if err != nil {
+		t.Fatal(err)
+	}
+	const def = `assignee = currentUser() AND statusCategory != Done AND (sprint IS EMPTY OR sprint NOT IN openSprints())`
+	if c.BacklogJQL() != def || config.DefaultBacklogJQL != def {
+		t.Errorf("default backlog JQL %q", c.BacklogJQL())
+	}
+	c, err = config.Load(write(t, minimal+"[jql]\n  backlog = \"project = ABC AND sprint IS EMPTY\"\n"))
+	if err != nil {
+		t.Fatal(err) // [jql] backlog must be a known key under strict decoding
+	}
+	if c.BacklogJQL() != "project = ABC AND sprint IS EMPTY" {
+		t.Errorf("backlog override %q", c.BacklogJQL())
+	}
+}

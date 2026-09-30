@@ -41,10 +41,11 @@ type Jira struct {
 }
 
 // JQL is the optional [jql] table of lane queries. Read it through
-// MineJQL, WaitingJQL, and DoneJQL.
+// MineJQL, WaitingJQL, BacklogJQL, and DoneJQL.
 type JQL struct {
 	Mine    string `toml:"mine,omitempty"`
 	Waiting string `toml:"waiting,omitempty"`
+	Backlog string `toml:"backlog,omitempty"`
 	Done    string `toml:"done,omitempty"`
 }
 
@@ -85,6 +86,7 @@ type Config struct {
 const (
 	DefaultMineJQL    = `assignee = currentUser() AND sprint IN openSprints() AND statusCategory != Done`
 	DefaultWaitingJQL = `(reporter = currentUser() OR watcher = currentUser()) AND assignee != currentUser() AND statusCategory != Done`
+	DefaultBacklogJQL = `assignee = currentUser() AND statusCategory != Done AND (sprint IS EMPTY OR sprint NOT IN openSprints())`
 	DefaultDoneJQL    = `assignee = currentUser() AND sprint IN openSprints() AND statusCategory = Done`
 )
 
@@ -172,6 +174,10 @@ func (c *Config) MineJQL() string { return orDefault(c.JQL.Mine, DefaultMineJQL)
 
 // WaitingJQL is the query for the Waiting on others lane.
 func (c *Config) WaitingJQL() string { return orDefault(c.JQL.Waiting, DefaultWaitingJQL) }
+
+// BacklogJQL is the query for the Backlog lane: my open issues outside the
+// open sprints.
+func (c *Config) BacklogJQL() string { return orDefault(c.JQL.Backlog, DefaultBacklogJQL) }
 
 // DoneJQL is the query for the Done this sprint lane.
 func (c *Config) DoneJQL() string { return orDefault(c.JQL.Done, DefaultDoneJQL) }

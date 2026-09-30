@@ -62,10 +62,24 @@ func TestEvaluateReasonsAndAge(t *testing.T) {
 }
 
 func TestLaneString(t *testing.T) {
-	for l, want := range map[model.Lane]string{model.LaneMine: "Mine", model.LaneWaiting: "Waiting on others", model.LaneDone: "Done this sprint"} {
+	for l, want := range map[model.Lane]string{model.LaneMine: "Mine", model.LaneWaiting: "Waiting on others", model.LaneBacklog: "Backlog", model.LaneDone: "Done this sprint"} {
 		if got := l.String(); got != want {
 			t.Errorf("Lane(%d).String() = %q, want %q", int(l), got, want)
 		}
+	}
+}
+
+func TestLaneOrderPutsBacklogBetweenWaitingAndDone(t *testing.T) {
+	lanes := []model.Lane{model.LaneMine, model.LaneWaiting, model.LaneBacklog, model.LaneDone}
+	if !slices.IsSorted(lanes) || len(slices.Compact(slices.Clone(lanes))) != len(lanes) {
+		t.Errorf("lane order Mine %d Waiting %d Backlog %d Done %d", model.LaneMine, model.LaneWaiting, model.LaneBacklog, model.LaneDone)
+	}
+}
+
+func TestEvaluateAppliesThresholdsInTheBacklog(t *testing.T) {
+	iss := model.Issue{StatusSince: t0.Add(-3 * 24 * time.Hour)}
+	if c := model.Evaluate(iss, "Code Review", model.LaneBacklog, rules(), t0, false); c.Light != model.Red || c.Lane != model.LaneBacklog {
+		t.Errorf("3d in Code Review in the backlog: light %v lane %v, want red", c.Light, c.Lane)
 	}
 }
 

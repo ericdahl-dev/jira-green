@@ -123,3 +123,18 @@ func TestByEpicEmptySummaryUsesKey(t *testing.T) {
 		t.Errorf("groups %+v, want name ABC-100", gs)
 	}
 }
+
+func TestLayoutIncludesTheBacklogLane(t *testing.T) {
+	cards := []model.Card{
+		{Issue: model.Issue{Key: "ABC-1"}, Column: "To Do", Lane: model.LaneBacklog, Light: model.Green},
+		{Issue: model.Issue{Key: "ABC-2"}, Column: "Code Review", Lane: model.LaneBacklog, Light: model.Yellow},
+		{Issue: model.Issue{Key: "ABC-3"}, Column: "To Do", Lane: model.LaneMine, Light: model.Red},
+	}
+	b := model.Layout(cols, cards, false)
+	if got := b.Cell(model.LaneBacklog, "Code Review"); len(got) != 1 || got[0].Key != "ABC-2" {
+		t.Errorf("backlog Code Review cell %+v", got)
+	}
+	if b.LaneCount(model.LaneBacklog) != 2 || b.LaneLight(model.LaneBacklog) != model.Yellow {
+		t.Errorf("backlog count %d light %v, want 2 yellow", b.LaneCount(model.LaneBacklog), b.LaneLight(model.LaneBacklog))
+	}
+}

@@ -146,6 +146,7 @@ func (p *Poller) fetch(ctx context.Context, now time.Time) (Snapshot, error) {
 	}{
 		{model.LaneMine, p.scoped(p.cfg.MineJQL())},
 		{model.LaneWaiting, p.cfg.WaitingJQL()}, // global: waiting spans boards
+		{model.LaneBacklog, p.scoped(p.cfg.BacklogJQL())},
 		{model.LaneDone, p.scoped(p.cfg.DoneJQL())},
 	}
 	seen := map[string]bool{}
@@ -175,7 +176,16 @@ func (p *Poller) fetch(ctx context.Context, now time.Time) (Snapshot, error) {
 					return Snapshot{}, err
 				}
 			}
-			if l.lane != model.LaneDone {
+			col := model.ColumnFor(p.cols, iss.StatusID)
+			switch {
+			case l.lane == model.LaneDone:
+				// Done cards carry no age.
+			case l.lane == model.LaneBacklog && !hasThreshold(rules, col):
+				// The backlog is large (80+ issues) and mostly To Do, where age
+				// colors nothing. Skip its changelog: Created stands in, an
+				// upper bound on time in status.
+				iss.StatusSince = iss.Created
+			default:
 				since, err := p.statusSince(ctx, iss)
 				switch {
 				case err == nil:
@@ -188,7 +198,6 @@ func (p *Poller) fetch(ctx context.Context, now time.Time) (Snapshot, error) {
 					iss.DecodeErrors = append(iss.DecodeErrors, fmt.Sprintf("changelog: %v", err))
 				}
 			}
-			col := model.ColumnFor(p.cols, iss.StatusID)
 			cards = append(cards, model.Evaluate(iss, col, l.lane, rules, now, false))
 		}
 	}
@@ -286,6 +295,12 @@ func (p *Poller) scoped(jql string) string {
 		return jql
 	}
 	return "(" + jql + ") AND filter = " + p.filterID
+}
+
+// hasThreshold reports whether age in column can raise a card's light.
+func hasThreshold(r model.Rules, column string) bool {
+	th := r.Thresholds[column]
+	return th.Yellow > 0 || th.Red > 0
 }
 
 // fatal reports whether a per-issue fetch error must fail the whole poll: a

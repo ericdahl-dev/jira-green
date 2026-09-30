@@ -13,12 +13,13 @@ type Lane int
 const (
 	LaneMine Lane = iota
 	LaneWaiting
+	LaneBacklog // mine, outside the open sprint
 	LaneDone
 )
 
 // String is the lane's display name, or "Lane(N)" for an unknown value.
 func (l Lane) String() string {
-	names := [...]string{"Mine", "Waiting on others", "Done this sprint"}
+	names := [...]string{"Mine", "Waiting on others", "Backlog", "Done this sprint"}
 	if l < 0 || int(l) >= len(names) {
 		return fmt.Sprintf("Lane(%d)", int(l))
 	}

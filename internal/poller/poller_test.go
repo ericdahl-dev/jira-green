@@ -717,7 +717,7 @@ func TestPollWithoutABoardFilterScopesNothing(t *testing.T) {
 	f := newFake() // filterID ""
 	now := t0
 	newPoller(c, f, &now).PollOnce(context.Background())
-	want := []string{c.MineJQL(), c.WaitingJQL(), c.DoneJQL()}
+	want := []string{c.MineJQL(), c.WaitingJQL(), c.BacklogJQL(), c.DoneJQL()}
 	if !slices.Equal(f.searched, want) {
 		t.Fatalf("searched %q, want the lane queries unchanged %q", f.searched, want)
 	}
@@ -1021,5 +1021,51 @@ func TestPollErrorKeepsLastEpicProgress(t *testing.T) {
 	f.setErr(errors.New("boom"))
 	if snap := p.PollOnce(context.Background()); snap.EpicProgress["ABC-100"] != (model.Progress{Done: 2, Total: 5}) {
 		t.Fatalf("stale snapshot progress %v, want the last good one kept", snap.EpicProgress)
+	}
+}
+
+func TestPollBacklogLaneIsScopedAndDedupedAfterWaiting(t *testing.T) {
+	c := cfg(t, "")
+	f := newFake()
+	f.filterID = "12345"
+	scope := func(jql string) string { return "(" + jql + ") AND filter = 12345" }
+	waiting := model.Issue{Key: "ABC-2", StatusID: "1", Created: t0, Updated: t0}
+	backlog := model.Issue{Key: "ABC-4", StatusID: "1", Created: t0, Updated: t0}
+	f.byJQL[c.WaitingJQL()] = []model.Issue{waiting}
+	f.byJQL[scope(c.BacklogJQL())] = []model.Issue{waiting, backlog}
+	f.byJQL[scope(c.DoneJQL())] = []model.Issue{backlog}
+	now := t0
+	snap := newPoller(c, f, &now).PollOnce(context.Background())
+	if snap.Err != nil || len(snap.Cards) != 2 {
+		t.Fatalf("want ABC-2 and ABC-4 once each, got %+v (searched %q)", snap.Cards, f.searched)
+	}
+	if snap.Cards[0].Key != "ABC-2" || snap.Cards[0].Lane != model.LaneWaiting ||
+		snap.Cards[1].Key != "ABC-4" || snap.Cards[1].Lane != model.LaneBacklog {
+		t.Errorf("cards %s/%v %s/%v, want ABC-2 Waiting then ABC-4 Backlog",
+			snap.Cards[0].Key, snap.Cards[0].Lane, snap.Cards[1].Key, snap.Cards[1].Lane)
+	}
+}
+
+func TestPollBacklogSkipsChangelogOnlyWhereNoThresholdApplies(t *testing.T) {
+	c := cfg(t, "")
+	f := newFake()
+	created := t0.Add(-30 * 24 * time.Hour)
+	f.byJQL[c.BacklogJQL()] = []model.Issue{
+		{Key: "ABC-4", StatusID: "1", Created: created, Updated: t0}, // To Do: no threshold
+		{Key: "ABC-5", StatusID: "3", Created: created, Updated: t0}, // In Progress: 3d/5d
+	}
+	f.changelogs["ABC-5"] = []model.StatusChange{{At: t0.Add(-6 * 24 * time.Hour), ToID: "3"}}
+	now := t0
+	snap := newPoller(c, f, &now).PollOnce(context.Background())
+	if snap.Err != nil || len(snap.Cards) != 2 {
+		t.Fatalf("%+v", snap)
+	}
+	todo, prog := snap.Cards[0], snap.Cards[1]
+	if f.changelogHits["ABC-4"] != 0 || !todo.StatusSince.Equal(created) || todo.Light != model.Green {
+		t.Errorf("backlog To Do: %d changelog fetches, since %v, light %v; want 0, Created, green",
+			f.changelogHits["ABC-4"], todo.StatusSince, todo.Light)
+	}
+	if f.changelogHits["ABC-5"] != 1 || prog.Light != model.Red {
+		t.Errorf("backlog In Progress 6d: %d changelog fetches, light %v; want 1 and red", f.changelogHits["ABC-5"], prog.Light)
 	}
 }

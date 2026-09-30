@@ -3745,6 +3745,13 @@ Decisions made after this plan was written. The code is authoritative; this reco
   `model.EpicGroup`, so `ByEpic` stays a pure function of the cards and its signature does not
   change; the list renderer looks progress up by `group.Key`. A non-fatal count error means no
   entry (never 0/0), and is retried next poll. A stale snapshot keeps the last progress.
+- **Backlog lane.** `model.LaneBacklog` sits between Waiting and Done (so `LaneDone` is now 3;
+  compare lanes by name, never by number). `config.BacklogJQL()` defaults to
+  `DefaultBacklogJQL`, overridable as `[jql] backlog`. The poller runs it scoped like Mine and
+  Done; dedupe order is Mine → Waiting → Backlog → Done. To bound the first poll (~84 backlog
+  issues for the real user), a Backlog card in a column with no threshold skips the changelog
+  and uses `Created` as `StatusSince`; it cannot change the light there. Cards in thresholded
+  columns still fetch it, so an aging Code Review backlog ticket goes yellow/red.
 
 ## Out of scope for v1
 
