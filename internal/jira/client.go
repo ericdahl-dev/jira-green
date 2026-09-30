@@ -11,6 +11,8 @@ import (
 	"net/http"
 	"strings"
 	"time"
+
+	"github.com/ericdahl-dev/jira-green/internal/model"
 )
 
 // Client talks to one Jira Cloud site with basic auth (email + API token).
@@ -87,3 +89,15 @@ func (c *Client) Myself(ctx context.Context) (User, error) {
 	err := c.do(ctx, http.MethodGet, "/rest/api/3/myself", nil, &u)
 	return u, err
 }
+
+// API is the subset of Client the poller and UI use; tests supply fakes.
+type API interface {
+	Myself(ctx context.Context) (User, error)
+	Search(ctx context.Context, jql, flaggedField string) ([]model.Issue, error)
+	BoardColumns(ctx context.Context, boardID int) ([]model.Column, error)
+	StatusChanges(ctx context.Context, key string) ([]model.StatusChange, error)
+	Transitions(ctx context.Context, key string) ([]Transition, error)
+	DoTransition(ctx context.Context, key, transitionID string) error
+}
+
+var _ API = (*Client)(nil)
