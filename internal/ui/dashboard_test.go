@@ -371,3 +371,113 @@ func TestSelectionFollowsCardAcrossPolls(t *testing.T) {
 		t.Errorf("list: selected %q, want the last row, ABC-2020", got)
 	}
 }
+
+func TestEnterOpensDetailEscCloses(t *testing.T) {
+	d := press(loaded(t, "kanban"), "right", "enter") // ABC-1974
+	if v := d.View(); !strings.Contains(v, "🟡 ABC-1974  In Progress") || !strings.Contains(v, "Assignee") || strings.Contains(v, "Mine (4)") {
+		t.Fatalf("enter shows the card's detail instead of the board:\n%s", v)
+	}
+	if got := selKey(press(d, "right", "down")); got != "ABC-1974" {
+		t.Errorf("board keys do not move the cursor under the detail: %q", got)
+	}
+	for _, k := range []string{"esc", "q"} {
+		if v := press(d, k).View(); !strings.Contains(v, "Mine (4)") {
+			t.Errorf("%s returns to the board:\n%s", k, v)
+		}
+	}
+	if _, cmd := d.Update(key("q")); cmd != nil {
+		t.Error("q closes the detail rather than quitting")
+	}
+
+	d = press(loaded(t, "list"), "down", "enter") // ABC-1836
+	if v := d.View(); !strings.Contains(v, "🔴 ABC-1836  Code Review") {
+		t.Errorf("enter on a list card shows its detail:\n%s", v)
+	}
+}
+
+func TestRendersAt80ColumnsBeforeWindowSize(t *testing.T) {
+	d := ui.NewDashboard("list", noOpen(t))
+	d, _ = d.Update(poller.Snapshot{Columns: fxCols, Cards: fxCards(), At: fxAt})
+	if v := d.View(); !strings.Contains(v, "ABC-1836") {
+		t.Errorf("list before WindowSizeMsg:\n%s", v)
+	}
+	if v := press(d, "down", "enter").View(); !strings.Contains(v, "Assignee") {
+		t.Errorf("detail before WindowSizeMsg:\n%s", v)
+	}
+}
+
+func TestTOpensPickerAndRoutesIt(t *testing.T) {
+	d, cmd := loaded(t, "kanban").Update(key("t"))
+	if lm, ok := run(cmd).(ui.LoadTransitionsMsg); !ok || lm.Key != "ABC-2011" {
+		t.Fatalf("t returns %#v, want LoadTransitionsMsg for ABC-2011", run(cmd))
+	}
+	if v := d.View(); !strings.Contains(v, "Transition ABC-2011") || strings.Contains(v, "Mine (4)") {
+		t.Fatalf("the picker replaces the board:\n%s", v)
+	}
+	d, _ = d.Update(ui.TransitionsLoadedMsg{Key: "ABC-2011", Transitions: fxTransitions})
+	d = press(d, "down", "enter")
+	if !strings.Contains(d.View(), "Move ABC-2011 to Done? y/n") {
+		t.Fatalf("keys reach the picker:\n%s", d.View())
+	}
+	d, cmd = d.Update(key("y"))
+	if dm, ok := run(cmd).(ui.DoTransitionMsg); !ok || dm.Key != "ABC-2011" || dm.TransitionID != "31" {
+		t.Fatalf("y returns %#v", run(cmd))
+	}
+	d = feed(d.Update(ui.TransitionResultMsg{Key: "ABC-2011"}))
+	if v := d.View(); !strings.Contains(v, "Mine (4)") {
+		t.Errorf("success closes the picker:\n%s", v)
+	}
+	if got := selKey(d); got != "ABC-2011" {
+		t.Errorf("the cursor did not move: %q", got)
+	}
+}
+
+func TestTWithNothingSelected(t *testing.T) {
+	if _, cmd := loaded(t, "list").Update(key("t")); cmd != nil {
+		t.Errorf("t on a group header returns %#v", run(cmd))
+	}
+}
+
+func TestTFromDetailReturnsToDetail(t *testing.T) {
+	d := press(loaded(t, "kanban"), "enter", "t")
+	if !strings.Contains(d.View(), "Transition ABC-2011") {
+		t.Fatalf("t in the detail opens the picker:\n%s", d.View())
+	}
+	if v := feed(d.Update(key("esc"))).View(); !strings.Contains(v, "Assignee") {
+		t.Errorf("closing the picker goes back to the detail:\n%s", v)
+	}
+}
+
+// feed delivers cmd's messages back to d, as Bubble Tea would.
+func feed(d ui.Dashboard, cmd tea.Cmd) ui.Dashboard {
+	for _, m := range msgs(cmd) {
+		d, _ = d.Update(m)
+	}
+	return d
+}
+
+func TestDetailFollowsSnapshot(t *testing.T) {
+	d := press(loaded(t, "kanban"), "right", "enter") // ABC-1974
+	moved := fxCards()
+	moved[2].Column = "Code Review"
+	d, _ = d.Update(poller.Snapshot{Columns: fxCols, Cards: moved, At: fxAt})
+	if v := d.View(); !strings.Contains(v, "🟡 ABC-1974  Code Review") {
+		t.Errorf("the detail shows the card's new column:\n%s", v)
+	}
+	d, _ = d.Update(poller.Snapshot{Columns: fxCols, Cards: fxCards()[:2], At: fxAt})
+	if v := d.View(); !strings.Contains(v, "ABC-1974") {
+		t.Errorf("a card that left the board keeps its last detail:\n%s", v)
+	}
+}
+
+func TestOInDetailOpensTheCard(t *testing.T) {
+	cards := fxCards()
+	cards[0].URL = "https://example.atlassian.net/browse/ABC-2011"
+	var opened string
+	d := ui.NewDashboard("kanban", func(u string) error { opened = u; return nil })
+	d, _ = d.Update(poller.Snapshot{Columns: fxCols, Cards: cards, At: fxAt})
+	_, cmd := press(d, "enter").Update(key("o"))
+	if run(cmd); opened != cards[0].URL {
+		t.Errorf("opened %q", opened)
+	}
+}

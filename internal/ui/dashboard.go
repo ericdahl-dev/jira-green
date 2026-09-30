@@ -41,6 +41,8 @@ type Dashboard struct {
 	collapsed map[string]bool
 	showDone  bool
 	showHelp  bool
+	detail    *model.Card // shown instead of the board when set
+	picker    *Picker     // shown over the board or detail when set
 	width     int
 	height    int
 	openURL   func(string) error
@@ -49,7 +51,8 @@ type Dashboard struct {
 // NewDashboard starts in defaultView ("kanban" or "list"). openURL opens a
 // card in the browser; main passes OpenBrowser, tests a fake.
 func NewDashboard(defaultView string, openURL func(string) error) Dashboard {
-	d := Dashboard{openURL: openURL, collapsed: map[string]bool{}}
+	// 80 columns until the first WindowSizeMsg says otherwise.
+	d := Dashboard{openURL: openURL, collapsed: map[string]bool{}, width: 80}
 	if defaultView == "list" {
 		d.mode = ViewList
 	}
@@ -71,6 +74,15 @@ func (d Dashboard) Update(msg tea.Msg) (Dashboard, tea.Cmd) {
 	case poller.Snapshot:
 		d.snap = msg
 		d.relayout()
+		d.refreshDetail()
+	case TransitionsLoadedMsg, TransitionResultMsg:
+		if d.picker != nil {
+			p, cmd := d.picker.Update(msg)
+			d.picker = &p
+			return d, cmd
+		}
+	case ClosePickerMsg:
+		d.picker = nil
 	case tea.KeyMsg:
 		return d.handleKey(msg)
 	}
@@ -78,11 +90,30 @@ func (d Dashboard) Update(msg tea.Msg) (Dashboard, tea.Cmd) {
 }
 
 func (d Dashboard) handleKey(k tea.KeyMsg) (Dashboard, tea.Cmd) {
+	if k.String() == "ctrl+c" {
+		return d, tea.Quit
+	}
+	if d.picker != nil {
+		p, cmd := d.picker.Update(k)
+		d.picker = &p
+		return d, cmd
+	}
+	if d.detail != nil {
+		switch k.String() {
+		case "esc", "q":
+			d.detail = nil
+		case "t":
+			return d.openPicker(d.detail)
+		case "o":
+			return d, d.open(d.detail)
+		}
+		return d, nil
+	}
 	if d.showHelp {
 		switch k.String() {
 		case "?", "esc":
 			d.showHelp = false
-		case "q", "ctrl+c":
+		case "q":
 			return d, tea.Quit
 		}
 		return d, nil
@@ -90,7 +121,7 @@ func (d Dashboard) handleKey(k tea.KeyMsg) (Dashboard, tea.Cmd) {
 	switch k.String() {
 	case "?":
 		d.showHelp = true
-	case "q", "ctrl+c":
+	case "q":
 		return d, tea.Quit
 	case "v":
 		d.mode = 1 - d.mode
@@ -103,14 +134,16 @@ func (d Dashboard) handleKey(k tea.KeyMsg) (Dashboard, tea.Cmd) {
 		d.showDone = !d.showDone
 		d.relayout()
 	case "o":
-		if c := d.Selected(); c != nil && c.URL != "" {
-			open, u := d.openURL, c.URL
-			return d, func() tea.Msg { _ = open(u); return nil }
-		}
+		return d, d.open(d.Selected())
+	case "t":
+		return d.openPicker(d.Selected())
 	case "enter":
 		if r := d.listRow(); d.listShown() && r != nil && r.Group != nil {
 			d.collapsed = maps.Clone(d.collapsed) // earlier copies keep their state
 			d.collapsed[r.Group.Key] = !d.collapsed[r.Group.Key]
+		} else if c := d.Selected(); c != nil {
+			cp := *c
+			d.detail = &cp
 		}
 	case "up", "k":
 		d.move(-1)
@@ -126,6 +159,40 @@ func (d Dashboard) handleKey(k tea.KeyMsg) (Dashboard, tea.Cmd) {
 		}
 	}
 	return d, nil
+}
+
+// refreshDetail swaps the detail's card for its copy in the new snapshot. A
+// card that left the board keeps its last detail.
+func (d *Dashboard) refreshDetail() {
+	if d.detail == nil {
+		return
+	}
+	for _, c := range d.snap.Cards {
+		if c.Key == d.detail.Key {
+			d.detail = &c
+			return
+		}
+	}
+}
+
+// open is a command that opens c in the browser, or nil when c has no URL.
+func (d Dashboard) open(c *model.Card) tea.Cmd {
+	if c == nil || c.URL == "" {
+		return nil
+	}
+	open, u := d.openURL, c.URL
+	return func() tea.Msg { _ = open(u); return nil }
+}
+
+// openPicker shows the transition picker for c and asks main for its
+// transitions.
+func (d Dashboard) openPicker(c *model.Card) (Dashboard, tea.Cmd) {
+	if c == nil {
+		return d, nil
+	}
+	p, k := NewPicker(c.Key), c.Key
+	d.picker = &p
+	return d, func() tea.Msg { return LoadTransitionsMsg{Key: k} }
 }
 
 // relayout rebuilds both views from the snapshot, keeping each view's
@@ -231,7 +298,7 @@ const minColWidth = 12
 
 // tooNarrow reports whether the terminal cannot fit the kanban's columns.
 func (d Dashboard) tooNarrow() bool {
-	return d.width > 0 && d.width < minColWidth*len(d.board.Columns)
+	return d.width < minColWidth*len(d.board.Columns)
 }
 
 // listShown reports whether the list is on screen: chosen, or standing in
@@ -286,6 +353,12 @@ func (d Dashboard) kanbanSelected() *model.Card {
 
 // View renders the dashboard.
 func (d Dashboard) View() string {
+	if d.picker != nil {
+		return d.picker.View()
+	}
+	if d.detail != nil {
+		return RenderDetail(*d.detail, d.width)
+	}
 	if d.showHelp {
 		return RenderHelp()
 	}
@@ -316,11 +389,7 @@ func (d Dashboard) statusLine() string {
 	case d.snap.Err != nil:
 		parts = append([]string{model.Stale.Emoji() + " stale: " + d.snap.Err.Error()}, parts...)
 	}
-	line := dimStyle.Render(strings.Join(parts, "  ·  "))
-	if d.width > 0 {
-		line = truncate(line, d.width)
-	}
-	return line
+	return truncate(dimStyle.Render(strings.Join(parts, "  ·  ")), d.width)
 }
 
 // OpenBrowser opens u in the default browser without waiting for it.
