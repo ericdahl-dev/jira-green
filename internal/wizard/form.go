@@ -25,6 +25,7 @@ const (
 // RunInteractive asks for the site, account, token source, and board, then
 // writes the config to path. With force, an existing file is replaced.
 func RunInteractive(ctx context.Context, path string, force bool) error {
+	// Early warning only, so nobody answers every question first; Create's atomic link is the binding rule.
 	if _, err := os.Stat(path); err == nil && !force {
 		return fmt.Errorf("config already exists at %s (use --force to overwrite)", path)
 	}
