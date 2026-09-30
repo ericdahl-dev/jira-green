@@ -6,6 +6,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"io/fs"
 	"maps"
 	"net/url"
 	"os"
@@ -318,8 +319,11 @@ func ResolveToken(j Jira) (string, error) {
 
 // WriteStarter writes a new config for the wizard. It refuses to overwrite.
 func WriteStarter(path string, j Jira) (*Config, error) {
-	if _, err := os.Stat(path); err == nil {
-		return nil, fmt.Errorf("%s already exists (use --force)", path)
+	switch _, err := os.Stat(path); {
+	case err == nil:
+		return nil, fmt.Errorf("%s already exists", path)
+	case !errors.Is(err, fs.ErrNotExist):
+		return nil, fmt.Errorf("check %s: %w", path, err)
 	}
 	c := &Config{Jira: j, path: path}
 	if err := c.validate(); err != nil {

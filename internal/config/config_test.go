@@ -431,3 +431,26 @@ func TestResolveTokenCommandTimesOut(t *testing.T) {
 		t.Errorf("took %v, want it cut off by the timeout", el)
 	}
 }
+
+func TestWriteStarterExistingFile(t *testing.T) {
+	p := write(t, minimal)
+	j := Jira{Site: "https://example.atlassian.net", Email: "me@example.com", BoardID: 7}
+	_, err := WriteStarter(p, j)
+	if err == nil || !strings.Contains(err.Error(), "already exists") || strings.Contains(err.Error(), "--force") {
+		t.Errorf("want plain already-exists error, got %v", err)
+	}
+}
+
+func TestWriteStarterStatError(t *testing.T) {
+	dir := filepath.Join(t.TempDir(), "locked")
+	if err := os.Mkdir(dir, 0o000); err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = os.Chmod(dir, 0o700) })
+	p := filepath.Join(dir, "config.toml")
+	j := Jira{Site: "https://example.atlassian.net", Email: "me@example.com", BoardID: 7}
+	_, err := WriteStarter(p, j)
+	if err == nil || !strings.Contains(err.Error(), p) {
+		t.Errorf("want an error naming %s from the existence check, got %v", p, err)
+	}
+}
