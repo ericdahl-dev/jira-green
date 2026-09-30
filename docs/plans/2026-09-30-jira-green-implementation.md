@@ -3662,7 +3662,8 @@ Follow `../coolify-green/main.go`'s top-level `model`: a screen enum (dashboard 
   `alert.New(cfg.Webhooks)` + `alert.NewTracker(stuckAfter)`.
 - On each `poller.Snapshot`: pass it to the dashboard, call `tracker.Observe`, then dispatch the
   events.
-- `RefreshMsg` → non-blocking send on the poller's refresh channel.
+- `RefreshMsg` → `poller.Refresh()`. `Start(ctx)` returns only the snapshot channel; `Refresh`
+  never blocks, even after `Start` has stopped on a 401, so the UI must not send on a raw channel.
 - `LoadTransitionsMsg` / `DoTransitionMsg` → run the API call in a `tea.Cmd`, and reply with
   `TransitionsLoadedMsg` / `TransitionResultMsg`.
 - `m` → manage screen. `q` / `ctrl+c` → quit. `?` → help overlay.

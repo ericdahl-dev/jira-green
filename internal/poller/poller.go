@@ -35,6 +35,8 @@ type Poller struct {
 	now   func() time.Time
 	after func(time.Duration) <-chan time.Time // Start's timer between polls
 
+	refresh chan struct{} // buffered 1; see Refresh
+
 	mu         sync.Mutex
 	me         string
 	cols       []model.Column
@@ -60,7 +62,10 @@ type clEntry struct {
 
 // New returns a Poller for cfg that reads Jira through api.
 func New(cfg *config.Config, api jira.API) *Poller {
-	return &Poller{cfg: cfg, api: api, now: time.Now, after: time.After, changelogs: map[string]clEntry{}, comments: map[string]cmEntry{}}
+	return &Poller{
+		cfg: cfg, api: api, now: time.Now, after: time.After, changelogs: map[string]clEntry{}, comments: map[string]cmEntry{},
+		refresh: make(chan struct{}, 1),
+	}
 }
 
 // PollOnce performs one poll synchronously. It is safe to call from any
@@ -205,12 +210,22 @@ func (p *Poller) statusSince(ctx context.Context, iss model.Issue) (time.Time, e
 	return since, nil
 }
 
-// Start polls now and then every PollInterval (or a 429's longer
-// RetryAfter) until ctx is done or a poll fails auth, sending each Snapshot on the returned channel, which closes
-// when polling stops. A send on the returned refresh channel polls at once.
-func (p *Poller) Start(ctx context.Context) (<-chan Snapshot, chan<- struct{}) {
+// Refresh asks a running Start loop to poll now. It never blocks: a request
+// already pending absorbs this one, and a call after Start has stopped (a 401,
+// or ctx done) does nothing.
+func (p *Poller) Refresh() {
+	select {
+	case p.refresh <- struct{}{}:
+	default:
+	}
+}
+
+// Start polls now and then every PollInterval (or a 429's longer RetryAfter),
+// sending each Snapshot on the returned channel. Refresh polls at once.
+// Polling stops, and the channel closes, when ctx is done or a poll gets a
+// 401.
+func (p *Poller) Start(ctx context.Context) <-chan Snapshot {
 	out := make(chan Snapshot, 1)
-	refresh := make(chan struct{}, 1)
 	go func() {
 		defer close(out)
 		for {
@@ -225,11 +240,11 @@ func (p *Poller) Start(ctx context.Context) (<-chan Snapshot, chan<- struct{}) {
 			}
 			select {
 			case <-p.after(max(p.cfg.PollInterval(), snap.RetryAfter)):
-			case <-refresh:
+			case <-p.refresh:
 			case <-ctx.Done():
 				return
 			}
 		}
 	}()
-	return out, refresh
+	return out
 }

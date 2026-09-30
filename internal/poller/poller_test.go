@@ -232,7 +232,7 @@ func TestStartStopsOn401(t *testing.T) {
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 
-	snaps, _ := newPoller(c, f, &now).Start(ctx)
+	snaps := newPoller(c, f, &now).Start(ctx)
 	if s, ok := recv(t, snaps); !ok || !s.AuthFailed {
 		t.Fatalf("first snapshot = %+v (open %v), want AuthFailed", s, ok)
 	}
@@ -249,13 +249,14 @@ func TestStartKeepsPollingThrough403(t *testing.T) {
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 
-	snaps, refresh := newPoller(c, f, &now).Start(ctx)
+	p := newPoller(c, f, &now)
+	snaps := p.Start(ctx)
 	if s, _ := recv(t, snaps); s.Err != nil {
 		t.Fatalf("first poll: %v", s.Err)
 	}
 
 	f.setErr(&jira.APIError{Status: 403})
-	refresh <- struct{}{}
+	p.Refresh()
 	s, ok := recv(t, snaps)
 	var ae *jira.APIError
 	if !ok || s.AuthFailed || !errors.As(s.Err, &ae) || ae.Status != 403 {
@@ -265,14 +266,14 @@ func TestStartKeepsPollingThrough403(t *testing.T) {
 		t.Fatalf("403 should keep the card as stale: %+v", s.Cards)
 	}
 
-	refresh <- struct{}{}
+	p.Refresh()
 	if _, ok := recv(t, snaps); !ok {
 		t.Fatal("polling stopped after a 403")
 	}
 }
 
 // recordWaits makes Start report each wait it asks for instead of sleeping.
-// The returned timers never fire; tests advance with the refresh channel.
+// The returned timers never fire; tests advance with Refresh.
 func recordWaits(p *poller.Poller) <-chan time.Duration {
 	waits := make(chan time.Duration, 8)
 	poller.SetAfter(p, func(d time.Duration) <-chan time.Time {
@@ -303,14 +304,14 @@ func TestStartWaitsForRetryAfter(t *testing.T) {
 	defer cancel()
 
 	f.setErr(&jira.APIError{Status: 429, RetryAfter: 90 * time.Second})
-	snaps, refresh := p.Start(ctx)
+	snaps := p.Start(ctx)
 	recv(t, snaps)
 	if d := nextWait(t, waits); d != 90*time.Second {
 		t.Errorf("after a 429 with Retry-After 90s: wait %v, want 90s", d)
 	}
 
 	f.setErr(&jira.APIError{Status: 429, RetryAfter: 5 * time.Second})
-	refresh <- struct{}{}
+	p.Refresh()
 	recv(t, snaps)
 	if d := nextWait(t, waits); d != 30*time.Second {
 		t.Errorf("Retry-After shorter than the interval: wait %v, want 30s", d)
@@ -361,7 +362,7 @@ func TestSetMutedWhileStartRunsIsRaceFree(t *testing.T) {
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 
-	snaps, refresh := p.Start(ctx)
+	snaps := p.Start(ctx)
 	done := make(chan struct{})
 	go func() {
 		defer close(done)
@@ -375,7 +376,7 @@ func TestSetMutedWhileStartRunsIsRaceFree(t *testing.T) {
 	for range 20 {
 		recv(t, snaps)
 		nextWait(t, waits)
-		refresh <- struct{}{}
+		p.Refresh()
 	}
 	<-done
 }
@@ -502,5 +503,33 @@ func TestPollChangelogRateLimitOrAuthFailsThePoll(t *testing.T) {
 		if snap := newPoller(c, f, &now).PollOnce(context.Background()); !errors.Is(snap.Err, err) {
 			t.Errorf("changelog %v: snapshot Err = %v, want it propagated", err, snap.Err)
 		}
+	}
+}
+
+func TestRefreshAfterStartExitedDoesNotBlock(t *testing.T) {
+	c := cfg(t, "")
+	f := newFake()
+	f.setErr(&jira.APIError{Status: 401})
+	now := t0
+	p := newPoller(c, f, &now)
+	recordWaits(p)
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+
+	snaps := p.Start(ctx)
+	recv(t, snaps)
+	if _, ok := recv(t, snaps); ok {
+		t.Fatal("channel should close after a 401")
+	}
+	done := make(chan struct{})
+	go func() {
+		p.Refresh()
+		p.Refresh()
+		close(done)
+	}()
+	select {
+	case <-done:
+	case <-time.After(time.Second):
+		t.Fatal("Refresh blocked after Start exited")
 	}
 }
