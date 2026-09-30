@@ -1,0 +1,137 @@
+package wizard_test
+
+import (
+	"context"
+	"errors"
+	"os"
+	"path/filepath"
+	"strings"
+	"testing"
+
+	"github.com/ericdahl-dev/jira-green/internal/config"
+	"github.com/ericdahl-dev/jira-green/internal/jira"
+	"github.com/ericdahl-dev/jira-green/internal/wizard"
+)
+
+type fakeAPI struct {
+	myselfErr error
+	flagged   string
+}
+
+func (f fakeAPI) Myself(context.Context) (jira.User, error) {
+	return jira.User{AccountID: "acct-me"}, f.myselfErr
+}
+
+func (f fakeAPI) FindFieldID(context.Context, string) (string, error) {
+	return f.flagged, nil
+}
+
+func answers() wizard.Answers {
+	return wizard.Answers{
+		Site:         "https://example.atlassian.net",
+		Email:        "me@example.com",
+		TokenCommand: "security find-generic-password -s jira-green -w",
+		BoardID:      42,
+	}
+}
+
+func TestFinishWritesLoadableConfig(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "config.toml")
+	if _, err := wizard.Finish(context.Background(), fakeAPI{flagged: "customfield_10021"}, answers(), path, false); err != nil {
+		t.Fatal(err)
+	}
+	c, err := config.Load(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if c.Jira.BoardID != 42 || c.Jira.FlaggedField != "customfield_10021" {
+		t.Fatalf("jira = %+v", c.Jira)
+	}
+}
+
+func TestFinishMyselfFailureWritesNothing(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "config.toml")
+	api := fakeAPI{myselfErr: errors.New("401 Unauthorized")}
+	if _, err := wizard.Finish(context.Background(), api, answers(), path, false); err == nil {
+		t.Fatal("want error")
+	}
+	if _, err := os.Stat(path); !errors.Is(err, os.ErrNotExist) {
+		t.Fatalf("config written: %v", err)
+	}
+}
+
+func TestFinishExistingFileWithoutForceErrors(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "config.toml")
+	if err := os.WriteFile(path, []byte("old"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := wizard.Finish(context.Background(), fakeAPI{}, answers(), path, false); err == nil {
+		t.Fatal("want error")
+	}
+	if b, _ := os.ReadFile(path); string(b) != "old" {
+		t.Fatalf("file changed: %q", b)
+	}
+}
+
+func TestFinishForceReplacesExistingFile(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "config.toml")
+	if err := os.WriteFile(path, []byte("old"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := wizard.Finish(context.Background(), fakeAPI{}, answers(), path, true); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := config.Load(path); err != nil {
+		t.Fatal(err)
+	}
+}
+
+func TestFinishEmptyFlaggedFieldIsOK(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "config.toml")
+	if _, err := wizard.Finish(context.Background(), fakeAPI{flagged: ""}, answers(), path, false); err != nil {
+		t.Fatal(err)
+	}
+	c, err := config.Load(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if c.Jira.FlaggedField != "" {
+		t.Fatalf("flagged_field = %q", c.Jira.FlaggedField)
+	}
+}
+
+func TestFinishRejectsNonHTTPSSiteBeforeTouchingFile(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "config.toml")
+	if err := os.WriteFile(path, []byte("old"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	a := answers()
+	a.Site = "http://example.atlassian.net"
+	if _, err := wizard.Finish(context.Background(), fakeAPI{}, a, path, true); err == nil {
+		t.Fatal("want error")
+	}
+	if b, _ := os.ReadFile(path); string(b) != "old" {
+		t.Fatalf("file changed: %q", b)
+	}
+}
+
+func TestFinishNeverWritesLiteralToken(t *testing.T) {
+	for name, a := range map[string]wizard.Answers{
+		"command": answers(),
+		"env":     {Site: "https://example.atlassian.net", Email: "me@example.com", TokenEnv: "JIRA_API_TOKEN", BoardID: 42},
+	} {
+		t.Run(name, func(t *testing.T) {
+			path := filepath.Join(t.TempDir(), "config.toml")
+			if _, err := wizard.Finish(context.Background(), fakeAPI{}, a, path, false); err != nil {
+				t.Fatal(err)
+			}
+			b, err := os.ReadFile(path)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if strings.Contains(string(b), "token =") {
+				t.Fatalf("config holds a literal token:\n%s", b)
+			}
+		})
+	}
+}
