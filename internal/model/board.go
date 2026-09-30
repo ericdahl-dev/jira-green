@@ -121,14 +121,17 @@ type EpicGroup struct {
 }
 
 // ByEpic groups cards by epic, worst group first, then by name. Cards with
-// no epic go last in NoEpic.
+// no epic go last in NoEpic. An epic with no summary is named by its key.
 func ByEpic(cards []Card) []EpicGroup {
 	idx := map[string]int{}
 	var gs []EpicGroup
 	for _, c := range cards {
 		key, name := c.EpicKey, c.EpicSummary
-		if key == "" {
-			key, name = "", NoEpic
+		switch {
+		case key == "":
+			name = NoEpic
+		case name == "":
+			name = key
 		}
 		i, ok := idx[key]
 		if !ok {

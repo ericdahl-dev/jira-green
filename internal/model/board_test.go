@@ -114,3 +114,10 @@ func TestByEpic(t *testing.T) {
 		t.Errorf("Search cards not worst-first: %v, %v", gs[1].Cards[0].Key, gs[1].Cards[1].Key)
 	}
 }
+
+func TestByEpicEmptySummaryUsesKey(t *testing.T) {
+	gs := ByEpic([]Card{{Issue: Issue{Key: "ABC-1", EpicKey: "ABC-100"}}})
+	if len(gs) != 1 || gs[0].Name != "ABC-100" {
+		t.Errorf("groups %+v, want name ABC-100", gs)
+	}
+}

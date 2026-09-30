@@ -15,8 +15,13 @@ const (
 	LaneDone
 )
 
+// String is the lane's display name, or "Lane(N)" for an unknown value.
 func (l Lane) String() string {
-	return [...]string{"Mine", "Waiting on others", "Done this sprint"}[l]
+	names := [...]string{"Mine", "Waiting on others", "Done this sprint"}
+	if l < 0 || int(l) >= len(names) {
+		return fmt.Sprintf("Lane(%d)", int(l))
+	}
+	return names[l]
 }
 
 // Rules configures Evaluate.
@@ -53,11 +58,12 @@ func Evaluate(iss Issue, column string, lane Lane, r Rules, now time.Time, stale
 		for _, b := range r.BlockedLabels {
 			if strings.EqualFold(l, b) {
 				raise(Red, "label "+l)
+				break
 			}
 		}
 	}
 	if !iss.StatusSince.IsZero() {
-		c.Age = now.Sub(iss.StatusSince)
+		c.Age = max(now.Sub(iss.StatusSince), 0) // clock skew: a future StatusSince is age 0
 		if th, ok := r.Thresholds[column]; ok {
 			switch {
 			case th.Red > 0 && c.Age >= th.Red:

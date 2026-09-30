@@ -27,3 +27,12 @@ func TestEmoji(t *testing.T) {
 		}
 	}
 }
+
+func TestStringOutOfRange(t *testing.T) {
+	if got := Stoplight(99).String(); got != "Stoplight(99)" {
+		t.Errorf("Stoplight(99).String() = %q", got)
+	}
+	if got := Lane(-1).String(); got != "Lane(-1)" {
+		t.Errorf("Lane(-1).String() = %q", got)
+	}
+}

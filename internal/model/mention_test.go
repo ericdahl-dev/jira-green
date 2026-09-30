@@ -40,6 +40,7 @@ func TestUnansweredMentionUnknownMe(t *testing.T) {
 		cs   []Comment
 	}{
 		{"empty mention ID does not match", []Comment{{AuthorID: "acct-x", Created: at(1), Mentions: []string{""}}}},
+		{"empty author mentions empty ID", []Comment{{AuthorID: "", Created: at(1), Mentions: []string{""}}}},
 		{"empty author ID is not my reply", []Comment{
 			{AuthorID: "acct-x", Created: at(1), Mentions: []string{"acct-y"}},
 			{AuthorID: "", Created: at(2)},

@@ -1,6 +1,8 @@
 // Package model holds jira-green's pure flow-health logic. It performs no I/O.
 package model
 
+import "fmt"
+
 // Stoplight is a card or group health. Values are ordered by severity, so the
 // worst of several is simply the maximum.
 type Stoplight int
@@ -25,8 +27,13 @@ func (s Stoplight) Emoji() string {
 	}
 }
 
+// String is the lowercase name, or "Stoplight(N)" for an unknown value.
 func (s Stoplight) String() string {
-	return [...]string{"green", "stale", "yellow", "red"}[s]
+	names := [...]string{"green", "stale", "yellow", "red"}
+	if s < 0 || int(s) >= len(names) {
+		return fmt.Sprintf("Stoplight(%d)", int(s))
+	}
+	return names[s]
 }
 
 // Worst returns the most severe stoplight, or Green for none.
