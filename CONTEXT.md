@@ -4,7 +4,7 @@ Terms used in the code, the docs, and the UI. The code is authoritative.
 
 - **Lane**: a horizontal band of the dashboard, set by which JQL query found the issue. Four
   lanes, in order: **Mine** (assigned to me in an open sprint), **Waiting** (I reported or
-  watch it, someone else has it), **Backlog** (assigned to me, not in an open sprint), and
+  watch it, someone else or no one has it, updated in the last 90 days), **Backlog** (assigned to me, not in an open sprint), and
   **Done** (done this sprint). An issue found by several queries lands in the first, in that
   order. Each query can be overridden under `[jql]`. Compare lanes by name, never by number.
 - **Column**: a board column from the Jira board's configuration. Each maps a set of status IDs.

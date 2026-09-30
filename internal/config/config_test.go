@@ -426,14 +426,15 @@ func TestLoadValidation(t *testing.T) {
 	}
 }
 
-func TestDefaultWaitingJQLIncludesUnassigned(t *testing.T) {
+func TestDefaultWaitingJQLIncludesUnassignedAndRecent(t *testing.T) {
 	c, err := config.Load(write(t, minimal))
 	if err != nil {
 		t.Fatal(err)
 	}
 	// "assignee != currentUser()" alone drops unassigned issues: JQL's !=
-	// never matches an empty field.
-	want := `(reporter = currentUser() OR watcher = currentUser()) AND (assignee != currentUser() OR assignee IS EMPTY) AND statusCategory != Done`
+	// never matches an empty field. updated >= -90d drops tickets untouched
+	// for months.
+	want := `(reporter = currentUser() OR watcher = currentUser()) AND (assignee != currentUser() OR assignee IS EMPTY) AND statusCategory != Done AND updated >= -90d`
 	if got := c.WaitingJQL(); got != want {
 		t.Errorf("waiting JQL\n got %s\nwant %s", got, want)
 	}

@@ -191,7 +191,7 @@ flagged_field = "customfield_10021"              # your site's Flagged field; fo
 
 [jql]
 mine    = 'assignee = currentUser() AND sprint IN openSprints() AND statusCategory != Done'
-waiting = '(reporter = currentUser() OR watcher = currentUser()) AND (assignee != currentUser() OR assignee IS EMPTY) AND statusCategory != Done'
+waiting = '(reporter = currentUser() OR watcher = currentUser()) AND (assignee != currentUser() OR assignee IS EMPTY) AND statusCategory != Done AND updated >= -90d'
 backlog = 'assignee = currentUser() AND statusCategory != Done AND (sprint IS EMPTY OR sprint NOT IN openSprints())'
 done    = 'assignee = currentUser() AND sprint IN openSprints() AND statusCategory = Done'
 
@@ -319,7 +319,7 @@ Each lane is one JQL query. Top to bottom:
 | Lane | Default query finds | Shown |
 |---|---|---|
 | **Mine** | issues assigned to you in an open sprint | always |
-| **Waiting on others** | issues you reported or watch that are assigned to someone else, or to no one | always |
+| **Waiting on others** | open issues you reported or watch, updated in the last 90 days, that are assigned to someone else or to no one | always |
 | **Backlog** | issues assigned to you outside the open sprints | collapsed; `b` expands it |
 | **Done this sprint** | your issues in an open sprint that are done | hidden; `d` shows it |
 
