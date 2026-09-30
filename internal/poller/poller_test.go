@@ -5,6 +5,7 @@ import (
 	"errors"
 	"os"
 	"path/filepath"
+	"strings"
 	"sync"
 	"testing"
 	"time"
@@ -22,12 +23,28 @@ type fake struct {
 	byJQL         map[string][]model.Issue
 	changelogs    map[string][]model.StatusChange
 	changelogHits map[string]int
+	comments      map[string][]model.Comment
+	commentHits   map[string]int
 	boardCalls    int
 	err           error // returned by Search when set
+	commentErr    error // returned by Comments when set
 }
 
 func newFake() *fake {
-	return &fake{byJQL: map[string][]model.Issue{}, changelogs: map[string][]model.StatusChange{}, changelogHits: map[string]int{}}
+	return &fake{
+		byJQL: map[string][]model.Issue{}, changelogs: map[string][]model.StatusChange{}, changelogHits: map[string]int{},
+		comments: map[string][]model.Comment{}, commentHits: map[string]int{},
+	}
+}
+
+func (f *fake) Comments(_ context.Context, key string) ([]model.Comment, error) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	f.commentHits[key]++
+	if f.commentErr != nil {
+		return nil, f.commentErr
+	}
+	return f.comments[key], nil
 }
 
 func (f *fake) Myself(context.Context) (jira.User, error) {
@@ -357,4 +374,84 @@ func TestSetMutedWhileStartRunsIsRaceFree(t *testing.T) {
 		refresh <- struct{}{}
 	}
 	<-done
+}
+
+// truncated is an issue whose Search result embedded only some comments.
+func truncated(key string, updated time.Time) model.Issue {
+	return model.Issue{
+		Key: key, StatusID: "1", Created: t0, Updated: updated, CommentsTruncated: true,
+		Comments: []model.Comment{{AuthorID: "acct-old", Created: t0}},
+	}
+}
+
+func TestPollCommentFetchRateLimitOrAuthFailsThePoll(t *testing.T) {
+	for _, tc := range []struct {
+		name string
+		err  error
+	}{
+		{"429", &jira.APIError{Status: 429, RetryAfter: 30 * time.Second}},
+		{"401", &jira.APIError{Status: 401}},
+		{"ctx", context.Canceled},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			c := cfg(t, "")
+			f := newFake()
+			f.byJQL[c.MineJQL()] = []model.Issue{truncated("ABC-1", t0)}
+			f.commentErr = tc.err
+			now := t0
+			snap := newPoller(c, f, &now).PollOnce(context.Background())
+			if !errors.Is(snap.Err, tc.err) {
+				t.Fatalf("Err = %v, want %v", snap.Err, tc.err)
+			}
+			if tc.name == "429" && snap.RetryAfter != 30*time.Second {
+				t.Errorf("RetryAfter = %v, want 30s", snap.RetryAfter)
+			}
+			if tc.name == "401" && !snap.AuthFailed {
+				t.Error("401 on the comment fetch did not set AuthFailed")
+			}
+		})
+	}
+}
+
+func TestPollCommentFetchOtherErrorDegradesOnlyThatCard(t *testing.T) {
+	c := cfg(t, "")
+	f := newFake()
+	f.byJQL[c.MineJQL()] = []model.Issue{truncated("ABC-1", t0), {Key: "ABC-2", StatusID: "1", Created: t0, Updated: t0}}
+	f.commentErr = &jira.APIError{Status: 500}
+	now := t0
+	snap := newPoller(c, f, &now).PollOnce(context.Background())
+	if snap.Err != nil || len(snap.Cards) != 2 {
+		t.Fatalf("a 500 on one comment fetch failed the poll: %+v", snap)
+	}
+	a := snap.Cards[0]
+	if len(a.Comments) != 1 || len(a.DecodeErrors) != 1 || !strings.HasPrefix(a.DecodeErrors[0], "comments: truncated, fetch failed") {
+		t.Errorf("comments %+v decode errors %q", a.Comments, a.DecodeErrors)
+	}
+	if a.Light != model.Stale || snap.Cards[1].Light != model.Green {
+		t.Errorf("lights %v %v, want stale then green", a.Light, snap.Cards[1].Light)
+	}
+}
+
+func TestPollCachesCommentsUntilUpdatedChanges(t *testing.T) {
+	c := cfg(t, "")
+	f := newFake()
+	f.byJQL[c.MineJQL()] = []model.Issue{truncated("ABC-1", t0)}
+	f.comments["ABC-1"] = []model.Comment{{AuthorID: "acct-new", Created: t0}, {AuthorID: "acct-old", Created: t0}}
+	now := t0
+	p := newPoller(c, f, &now)
+
+	p.PollOnce(context.Background())
+	snap := p.PollOnce(context.Background())
+	if f.commentHits["ABC-1"] != 1 {
+		t.Fatalf("Updated unchanged: want 1 comment fetch, got %d", f.commentHits["ABC-1"])
+	}
+	if len(snap.Cards) != 1 || len(snap.Cards[0].Comments) != 2 {
+		t.Fatalf("cached comments not used: %+v", snap.Cards)
+	}
+
+	f.byJQL[c.MineJQL()] = []model.Issue{truncated("ABC-1", t0.Add(time.Minute))}
+	p.PollOnce(context.Background())
+	if f.commentHits["ABC-1"] != 2 {
+		t.Fatalf("Updated changed: want 2 comment fetches, got %d", f.commentHits["ABC-1"])
+	}
 }

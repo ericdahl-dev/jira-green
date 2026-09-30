@@ -187,6 +187,7 @@ func TestIssueKeysArePathEscaped(t *testing.T) {
 	_, _ = c.Transitions(ctx, "A/B-1")
 	_ = c.DoTransition(ctx, "A/B-1", "21")
 	_, _ = c.Search(ctx, "project = ABC", "")
+	_, _ = c.Comments(ctx, "A/B-1")
 	want := []string{
 		"/rest/api/3/issue/A%2FB-1/changelog",
 		"/rest/api/3/issue/A%2FB-1/transitions",

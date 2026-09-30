@@ -101,6 +101,7 @@ type API interface {
 	Search(ctx context.Context, jql, flaggedField string) ([]model.Issue, error)
 	BoardColumns(ctx context.Context, boardID int) ([]model.Column, error)
 	StatusChanges(ctx context.Context, key string) ([]model.StatusChange, error)
+	Comments(ctx context.Context, key string) ([]model.Comment, error)
 	Transitions(ctx context.Context, key string) ([]Transition, error)
 	DoTransition(ctx context.Context, key, transitionID string) error
 }

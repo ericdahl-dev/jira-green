@@ -22,6 +22,9 @@ type Issue struct {
 	// fills it from the changelog; zero means "not yet known".
 	StatusSince time.Time
 	Comments    []Comment
+	// CommentsTruncated is set when Search embedded only the first page of
+	// comments. The poller then fetches the newest ones.
+	CommentsTruncated bool
 	// DecodeErrors lists fields the jira package could not decode, as
 	// "field: error". Non-empty marks the issue's data as incomplete.
 	DecodeErrors []string

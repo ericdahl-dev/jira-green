@@ -136,15 +136,10 @@ func TestSearchMalformedStatusLeavesStatusEmpty(t *testing.T) {
 
 const commentJSON = `{"author":{"accountId":%q},"created":"2026-09-2%dT09:00:00.000-0400","body":null}`
 
-func TestSearchFetchesTruncatedComments(t *testing.T) {
+func TestSearchMarksTruncatedCommentsWithoutFetching(t *testing.T) {
 	c := newTest(t, func(w http.ResponseWriter, r *http.Request) {
-		if r.URL.Path == "/rest/api/3/issue/ABC-7/comment" {
-			if r.Method != http.MethodGet || r.URL.Query().Get("orderBy") != "-created" || r.URL.Query().Get("maxResults") != "100" {
-				t.Errorf("%s %s", r.Method, r.URL)
-			}
-			_, _ = fmt.Fprintf(w, `{"total":3,"comments":[`+commentJSON+`,`+commentJSON+`,`+commentJSON+`]}`,
-				"acct-c", 3, "acct-b", 2, "acct-a", 1)
-			return
+		if r.URL.Path != "/rest/api/3/search/jql" {
+			t.Errorf("Search fetched %s; the poller fetches truncated comments", r.URL.Path)
 		}
 		_, _ = fmt.Fprintf(w, `{"isLast":true,"issues":[
 			{"key":"ABC-7","fields":{"comment":{"total":3,"comments":[`+commentJSON+`]}}},
@@ -155,34 +150,45 @@ func TestSearchFetchesTruncatedComments(t *testing.T) {
 	if err != nil || len(issues) != 2 {
 		t.Fatalf("%+v %v", issues, err)
 	}
-	var authors []string
-	for _, cm := range issues[0].Comments {
-		authors = append(authors, cm.AuthorID)
+	if a := issues[0]; !a.CommentsTruncated || len(a.Comments) != 1 || len(a.DecodeErrors) != 0 {
+		t.Errorf("truncated issue: %+v", a)
 	}
-	if !slices.Equal(authors, []string{"acct-c", "acct-b", "acct-a"}) || len(issues[0].DecodeErrors) != 0 {
-		t.Errorf("authors %v decode errors %q", authors, issues[0].DecodeErrors)
-	}
-	if len(issues[1].Comments) != 1 {
-		t.Errorf("untruncated issue comments %+v", issues[1].Comments)
+	if b := issues[1]; b.CommentsTruncated || len(b.Comments) != 1 {
+		t.Errorf("untruncated issue: %+v", b)
 	}
 }
 
-func TestSearchTruncatedCommentFetchFailureIsDecodeError(t *testing.T) {
+func TestCommentsFetchesNewest100(t *testing.T) {
 	c := newTest(t, func(w http.ResponseWriter, r *http.Request) {
-		if r.URL.Path == "/rest/api/3/issue/ABC-7/comment" {
-			w.WriteHeader(http.StatusInternalServerError)
-			return
+		if r.Method != http.MethodGet || r.URL.Path != "/rest/api/3/issue/ABC-7/comment" ||
+			r.URL.Query().Get("orderBy") != "-created" || r.URL.Query().Get("maxResults") != "100" {
+			t.Errorf("%s %s", r.Method, r.URL)
 		}
-		_, _ = fmt.Fprintf(w, `{"isLast":true,"issues":[
-			{"key":"ABC-7","fields":{"comment":{"total":3,"comments":[`+commentJSON+`]}}}]}`, "acct-a", 1)
+		_, _ = fmt.Fprintf(w, `{"total":3,"comments":[`+commentJSON+`,`+commentJSON+`,`+commentJSON+`]}`,
+			"acct-c", 3, "acct-b", 2, "acct-a", 1)
 	})
-	issues, err := c.Search(context.Background(), "project = ABC", "")
-	if err != nil || len(issues) != 1 {
-		t.Fatalf("%+v %v", issues, err)
+	cms, err := c.Comments(context.Background(), "ABC-7")
+	if err != nil {
+		t.Fatal(err)
 	}
-	a := issues[0]
-	if len(a.Comments) != 1 || len(a.DecodeErrors) != 1 || !strings.HasPrefix(a.DecodeErrors[0], "comments: truncated, fetch failed") {
-		t.Errorf("comments %+v decode errors %q", a.Comments, a.DecodeErrors)
+	var authors []string
+	for _, cm := range cms {
+		authors = append(authors, cm.AuthorID)
+	}
+	if !slices.Equal(authors, []string{"acct-c", "acct-b", "acct-a"}) {
+		t.Errorf("authors %v", authors)
+	}
+}
+
+func TestCommentsRateLimitIsAPIError(t *testing.T) {
+	c := newTest(t, func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Retry-After", "30")
+		w.WriteHeader(http.StatusTooManyRequests)
+	})
+	_, err := c.Comments(context.Background(), "ABC-7")
+	var ae *jira.APIError
+	if !errors.As(err, &ae) || ae.Status != http.StatusTooManyRequests || ae.RetryAfter != 30*time.Second {
+		t.Fatalf("got %v, want a 429 APIError with RetryAfter 30s", err)
 	}
 }
 

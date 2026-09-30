@@ -5,6 +5,8 @@ package poller
 import (
 	"context"
 	"errors"
+	"fmt"
+	"net/http"
 	"sync"
 	"time"
 
@@ -38,7 +40,15 @@ type Poller struct {
 	cols       []model.Column
 	colsAt     time.Time
 	changelogs map[string]clEntry
+	comments   map[string]cmEntry
 	last       Snapshot
+}
+
+// cmEntry caches an issue's fetched comments, valid while the issue's
+// Updated time is unchanged. A new comment bumps Updated.
+type cmEntry struct {
+	updated  time.Time
+	comments []model.Comment
 }
 
 // clEntry caches when an issue entered its status, valid while the issue's
@@ -50,7 +60,7 @@ type clEntry struct {
 
 // New returns a Poller for cfg that reads Jira through api.
 func New(cfg *config.Config, api jira.API) *Poller {
-	return &Poller{cfg: cfg, api: api, now: time.Now, after: time.After, changelogs: map[string]clEntry{}}
+	return &Poller{cfg: cfg, api: api, now: time.Now, after: time.After, changelogs: map[string]clEntry{}, comments: map[string]cmEntry{}}
 }
 
 // PollOnce performs one poll synchronously. It is safe to call from any
@@ -124,6 +134,11 @@ func (p *Poller) fetch(ctx context.Context, now time.Time) (Snapshot, error) {
 				continue
 			}
 			seen[iss.Key] = true
+			if iss.CommentsTruncated {
+				if err := p.fillComments(ctx, &iss); err != nil {
+					return Snapshot{}, err
+				}
+			}
 			if l.lane != model.LaneDone {
 				since, err := p.statusSince(ctx, iss)
 				if err != nil {
@@ -136,6 +151,37 @@ func (p *Poller) fetch(ctx context.Context, now time.Time) (Snapshot, error) {
 		}
 	}
 	return Snapshot{Columns: p.cols, Cards: cards, At: now}, nil
+}
+
+// fatal reports whether a per-issue fetch error must fail the whole poll: a
+// 401 (stop polling), a 429 (its RetryAfter must reach the snapshot), or a
+// cancelled or expired context. Any other error only degrades that card.
+func fatal(err error) bool {
+	var ae *jira.APIError
+	return jira.IsAuth(err) ||
+		(errors.As(err, &ae) && ae.Status == http.StatusTooManyRequests) ||
+		errors.Is(err, context.Canceled) || errors.Is(err, context.DeadlineExceeded)
+}
+
+// fillComments replaces a truncated first page of comments with the newest
+// ones, fetched only when the issue changed since the last fetch. A non-fatal
+// failure keeps the first page and marks the card with a decode error.
+func (p *Poller) fillComments(ctx context.Context, iss *model.Issue) error {
+	if e, ok := p.comments[iss.Key]; ok && e.updated.Equal(iss.Updated) {
+		iss.Comments = e.comments
+		return nil
+	}
+	cms, err := p.api.Comments(ctx, iss.Key)
+	if err != nil {
+		if fatal(err) {
+			return err
+		}
+		iss.DecodeErrors = append(iss.DecodeErrors, fmt.Sprintf("comments: truncated, fetch failed: %v", err))
+		return nil
+	}
+	iss.Comments = cms
+	p.comments[iss.Key] = cmEntry{updated: iss.Updated, comments: cms}
+	return nil
 }
 
 // statusSince reads the changelog only when the issue changed since the last

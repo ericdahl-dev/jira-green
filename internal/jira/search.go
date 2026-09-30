@@ -47,7 +47,7 @@ func (c *Client) Search(ctx context.Context, jql, flaggedField string) ([]model.
 			return nil, err
 		}
 		for _, ai := range r.Issues {
-			out = append(out, c.convert(ctx, ai, flaggedField))
+			out = append(out, c.convert(ai, flaggedField))
 		}
 		if r.IsLast || r.NextPageToken == "" {
 			return out, nil
@@ -107,7 +107,7 @@ func decodeField[T any](d *fieldDecoder, name string) (v T, ok bool) {
 	return v, true
 }
 
-func (c *Client) convert(ctx context.Context, ai apiIssue, flaggedField string) model.Issue {
+func (c *Client) convert(ai apiIssue, flaggedField string) model.Issue {
 	d := &fieldDecoder{fields: ai.Fields}
 	iss := model.Issue{Key: ai.Key, URL: c.BrowseURL(ai.Key)}
 	iss.Summary, _ = decodeField[string](d, "summary")
@@ -132,24 +132,32 @@ func (c *Client) convert(ctx context.Context, ai apiIssue, flaggedField string) 
 		iss.Flagged = len(flags) > 0
 	}
 	cm, _ := decodeField[commentPage](d, "comment")
-	if len(cm.Comments) < cm.Total {
-		// Search embeds only the first page of comments; fetch the newest
-		// 100 so a recent mention is not missed.
-		var full commentPage
-		path := "/rest/api/3/issue/" + url.PathEscape(ai.Key) + "/comment?orderBy=-created&maxResults=100"
-		if err := c.do(ctx, http.MethodGet, path, nil, &full); err != nil {
-			d.errs = append(d.errs, fmt.Sprintf("comments: truncated, fetch failed: %v", err))
-		} else {
-			cm = full
-		}
+	// Search embeds only the first page of comments; the poller fetches the
+	// newest ones through Comments, cached by Updated.
+	iss.CommentsTruncated = len(cm.Comments) < cm.Total
+	iss.Comments = toComments(cm.Comments)
+	iss.DecodeErrors = d.errs
+	return iss
+}
+
+// Comments returns an issue's newest 100 comments, newest first.
+func (c *Client) Comments(ctx context.Context, key string) ([]model.Comment, error) {
+	var page commentPage
+	path := "/rest/api/3/issue/" + url.PathEscape(key) + "/comment?orderBy=-created&maxResults=100"
+	if err := c.do(ctx, http.MethodGet, path, nil, &page); err != nil {
+		return nil, err
 	}
-	for _, cm := range cm.Comments {
-		iss.Comments = append(iss.Comments, model.Comment{
+	return toComments(page.Comments), nil
+}
+
+func toComments(in []apiComment) []model.Comment {
+	var out []model.Comment
+	for _, cm := range in {
+		out = append(out, model.Comment{
 			AuthorID: cm.Author.AccountID,
 			Created:  cm.Created.Time,
 			Mentions: mentions(cm.Body),
 		})
 	}
-	iss.DecodeErrors = d.errs
-	return iss
+	return out
 }
