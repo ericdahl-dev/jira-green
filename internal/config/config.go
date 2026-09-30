@@ -294,7 +294,8 @@ func (c *Config) SetMuted(key string, muted bool) error {
 }
 
 // Save writes the config atomically: a temp file in the same directory,
-// mode 0600, renamed over the target.
+// mode 0600, renamed over the target. A symlinked config stays a symlink:
+// the file it points to is replaced.
 func (c *Config) Save() error {
 	c.mu.RLock()
 	defer c.mu.RUnlock()
@@ -303,12 +304,19 @@ func (c *Config) Save() error {
 
 // save is Save for a caller that already holds mu.
 func (c *Config) save() error {
-	tmp, err := c.writeTemp()
+	target, err := filepath.EvalSymlinks(c.path)
+	switch {
+	case errors.Is(err, fs.ErrNotExist):
+		target = c.path // a new file, or a dangling link to replace
+	case err != nil:
+		return fmt.Errorf("write %s: %w", c.path, err)
+	}
+	tmp, err := c.writeTemp(target)
 	if err != nil {
 		return err
 	}
 	defer func() { _ = os.Remove(tmp) }() // no-op after a successful rename
-	return os.Rename(tmp, c.path)
+	return os.Rename(tmp, target)
 }
 
 // Create writes the config like Save, but only when no file is at its
@@ -317,7 +325,7 @@ func (c *Config) save() error {
 func (c *Config) Create() error {
 	c.mu.RLock()
 	defer c.mu.RUnlock()
-	tmp, err := c.writeTemp()
+	tmp, err := c.writeTemp(c.path)
 	if err != nil {
 		return err
 	}
@@ -331,14 +339,14 @@ func (c *Config) Create() error {
 	return nil
 }
 
-// writeTemp encodes c into a synced mode-0600 temp file beside its path and
+// writeTemp encodes c into a synced mode-0600 temp file beside target and
 // returns the temp file's name. The caller removes it.
-func (c *Config) writeTemp() (string, error) {
+func (c *Config) writeTemp(target string) (string, error) {
 	var buf bytes.Buffer
 	if err := toml.NewEncoder(&buf).Encode(c); err != nil {
 		return "", err
 	}
-	dir := filepath.Dir(c.path)
+	dir := filepath.Dir(target)
 	if err := os.MkdirAll(dir, 0o700); err != nil {
 		return "", fmt.Errorf("write %s: %w", c.path, err)
 	}
@@ -411,19 +419,29 @@ func WriteStarter(path string, j Jira) (*Config, error) {
 	if err != nil {
 		return nil, err
 	}
-	return c, c.Create()
+	if err := c.Create(); err != nil {
+		return nil, err
+	}
+	return c, nil
 }
 
-// New validates j and returns a Config that saves to path. It writes
-// nothing: Create writes it only where no file exists, and Save replaces
-// any existing file atomically.
+// New validates j and returns a Config that saves to path. j must name
+// exactly one token source: a new config does not lean on $JIRA_API_TOKEN.
+// It writes nothing: Create writes it only where no file exists, and Save
+// replaces any existing file atomically.
 func New(path string, j Jira) (*Config, error) {
+	if (j.TokenCommand == "") == (j.TokenEnv == "") {
+		return nil, errors.New("set exactly one of jira.token_command or jira.token_env")
+	}
+	return NewStarter(path, j)
+}
+
+// NewStarter is New without the token source rule. It stays only until
+// main_test.go's harness calls New; delete it then.
+func NewStarter(path string, j Jira) (*Config, error) {
 	c := &Config{Jira: j, path: path}
 	if err := c.validate(); err != nil {
 		return nil, err
 	}
 	return c, nil
 }
-
-// NewStarter is New. It stays until main_test.go calls New.
-func NewStarter(path string, j Jira) (*Config, error) { return New(path, j) }

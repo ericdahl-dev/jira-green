@@ -464,7 +464,7 @@ func TestResolveTokenCommandTimesOut(t *testing.T) {
 
 func TestWriteStarterExistingFile(t *testing.T) {
 	p := write(t, minimal)
-	j := config.Jira{Site: "https://example.atlassian.net", Email: "me@example.com", BoardID: 7}
+	j := config.Jira{Site: "https://example.atlassian.net", Email: "me@example.com", TokenEnv: "JG_TEST_TOKEN", BoardID: 7}
 	_, err := config.WriteStarter(p, j)
 	if err == nil || !strings.Contains(err.Error(), "already exists") || strings.Contains(err.Error(), "--force") {
 		t.Errorf("want plain already-exists error, got %v", err)
@@ -478,7 +478,7 @@ func TestWriteStarterStatError(t *testing.T) {
 	}
 	t.Cleanup(func() { _ = os.Chmod(dir, 0o700) })
 	p := filepath.Join(dir, "config.toml")
-	j := config.Jira{Site: "https://example.atlassian.net", Email: "me@example.com", BoardID: 7}
+	j := config.Jira{Site: "https://example.atlassian.net", Email: "me@example.com", TokenEnv: "JG_TEST_TOKEN", BoardID: 7}
 	_, err := config.WriteStarter(p, j)
 	if err == nil || !strings.Contains(err.Error(), p) {
 		t.Errorf("want an error naming %s from the existence check, got %v", p, err)
@@ -517,5 +517,53 @@ func TestCreateLeavesAnExistingFileAlone(t *testing.T) {
 	}
 	if ents, _ := os.ReadDir(filepath.Dir(p)); len(ents) != 1 {
 		t.Errorf("temp file left behind: %v", ents)
+	}
+}
+
+func TestNewRequiresExactlyOneTokenSource(t *testing.T) {
+	base := config.Jira{Site: "https://example.atlassian.net", Email: "me@example.com", BoardID: 7}
+	both, neither := base, base
+	both.TokenEnv, both.TokenCommand = "JG_TEST_TOKEN", "echo tok"
+	for name, j := range map[string]config.Jira{"both": both, "neither": neither} {
+		t.Run(name, func(t *testing.T) {
+			p := filepath.Join(t.TempDir(), "config.toml")
+			if _, err := config.New(p, j); err == nil || !strings.Contains(err.Error(), "exactly one") {
+				t.Errorf("New: want an exactly-one error, got %v", err)
+			}
+			if _, err := config.WriteStarter(p, j); err == nil {
+				t.Error("WriteStarter: want error")
+			}
+			if _, err := os.Stat(p); !os.IsNotExist(err) {
+				t.Errorf("config written: %v", err)
+			}
+		})
+	}
+}
+
+func TestSaveKeepsASymlinkedConfig(t *testing.T) {
+	target := write(t, minimal) // e.g. a file in Dropbox
+	link := filepath.Join(t.TempDir(), "config.toml")
+	if err := os.Symlink(target, link); err != nil {
+		t.Fatal(err)
+	}
+	c, err := config.Load(link)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := c.SetMuted("ABC-1", true); err != nil {
+		t.Fatal(err)
+	}
+	if fi, err := os.Lstat(link); err != nil || fi.Mode()&os.ModeSymlink == 0 {
+		t.Fatalf("config.toml is no longer a symlink: %v %v", fi.Mode(), err)
+	}
+	if b, _ := os.ReadFile(target); !strings.Contains(string(b), "ABC-1") {
+		t.Errorf("the target lacks the new content:\n%s", b)
+	}
+}
+
+func TestWriteStarterReturnsNoConfigOnError(t *testing.T) {
+	j := config.Jira{Site: "https://example.atlassian.net", Email: "me@example.com", TokenEnv: "JG_TEST_TOKEN", BoardID: 7}
+	if c, err := config.WriteStarter(write(t, minimal), j); err == nil || c != nil {
+		t.Errorf("onto an existing file: config %v, err %v; want nil and an error", c, err)
 	}
 }

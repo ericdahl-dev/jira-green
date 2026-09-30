@@ -5,9 +5,9 @@ import (
 	"errors"
 	"os"
 	"path/filepath"
-	"strings"
 	"testing"
 
+	"github.com/BurntSushi/toml"
 	"github.com/ericdahl-dev/jira-green/internal/config"
 	"github.com/ericdahl-dev/jira-green/internal/jira"
 	"github.com/ericdahl-dev/jira-green/internal/wizard"
@@ -126,12 +126,15 @@ func TestFinishNeverWritesLiteralToken(t *testing.T) {
 			if _, err := wizard.Finish(context.Background(), fakeAPI{}, a, path, false); err != nil {
 				t.Fatal(err)
 			}
-			b, err := os.ReadFile(path)
-			if err != nil {
+			var doc map[string]any
+			if _, err := toml.DecodeFile(path, &doc); err != nil {
 				t.Fatal(err)
 			}
-			if strings.Contains(string(b), "token =") {
-				t.Fatalf("config holds a literal token:\n%s", b)
+			jiraTable, _ := doc["jira"].(map[string]any)
+			for where, table := range map[string]map[string]any{"top level": doc, "[jira]": jiraTable} {
+				if _, ok := table["token"]; ok {
+					t.Errorf("%s holds a literal token: %v", where, table)
+				}
 			}
 		})
 	}
@@ -189,5 +192,15 @@ func TestFinishForceKeepsOldFileWhenJiraFails(t *testing.T) {
 				t.Fatalf("file changed: %q", b)
 			}
 		})
+	}
+}
+
+func TestFinishReturnsNoConfigOnError(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "config.toml")
+	if err := os.WriteFile(path, []byte("old"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if c, err := wizard.Finish(context.Background(), fakeAPI{}, answers(), path, false); err == nil || c != nil {
+		t.Errorf("onto an existing file: config %v, err %v; want nil and an error", c, err)
 	}
 }

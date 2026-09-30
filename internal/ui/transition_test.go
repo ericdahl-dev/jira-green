@@ -209,3 +209,15 @@ func TestPickerSaysEscIsOffWhileMoving(t *testing.T) {
 		t.Errorf("not moving:\n%s", v)
 	}
 }
+
+func TestPickerWidthZeroMeans80(t *testing.T) {
+	for name, p := range map[string]ui.Picker{
+		"new":    ui.NewPicker("ABC-1", 0),
+		"resize": func() ui.Picker { p, _ := ui.NewPicker("ABC-1", 80).Update(tea.WindowSizeMsg{}); return p }(),
+	} {
+		v := p.View()
+		if !strings.Contains(v, "Transition ABC-1") || !strings.Contains(v, "esc cancel") {
+			t.Errorf("%s: width 0 cut the picker:\n%s", name, v)
+		}
+	}
+}

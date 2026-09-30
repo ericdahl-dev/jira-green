@@ -47,13 +47,24 @@ type Picker struct {
 }
 
 // NewPicker is a picker for key, waiting for its transitions, fit to width.
-func NewPicker(key string, width int) Picker { return Picker{key: key, loading: true, width: width} }
+// A width of 0 (not known yet) means 80.
+func NewPicker(key string, width int) Picker {
+	return Picker{key: key, loading: true, width: orWidth(width)}
+}
+
+// orWidth is width, or the 80-column default when width is not known.
+func orWidth(width int) int {
+	if width <= 0 {
+		return 80
+	}
+	return width
+}
 
 // Update handles one message.
 func (p Picker) Update(msg tea.Msg) (Picker, tea.Cmd) {
 	switch msg := msg.(type) {
 	case tea.WindowSizeMsg:
-		p.width = msg.Width
+		p.width = orWidth(msg.Width)
 	case TransitionsLoadedMsg:
 		// Only the first reply counts: after t, esc, t a second reply for
 		// the same key can arrive once the list is in use.

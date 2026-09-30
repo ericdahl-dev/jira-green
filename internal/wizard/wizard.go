@@ -3,7 +3,6 @@ package wizard
 
 import (
 	"context"
-	"errors"
 	"fmt"
 	"net/url"
 
@@ -30,9 +29,6 @@ type Answers struct {
 // Finish is the non-interactive end of the wizard: it verifies the account,
 // looks up the Flagged field, and writes the config to path.
 func Finish(ctx context.Context, api API, a Answers, path string, force bool) (*config.Config, error) {
-	if (a.TokenCommand == "") == (a.TokenEnv == "") {
-		return nil, errors.New("set exactly one of token command or token env")
-	}
 	c, err := config.New(path, config.Jira{
 		Site:         a.Site,
 		Email:        a.Email,
@@ -49,10 +45,14 @@ func Finish(ctx context.Context, api API, a Answers, path string, force bool) (*
 	if c.Jira.FlaggedField, err = api.FindFieldID(ctx, "Flagged"); err != nil {
 		return nil, err
 	}
+	write := c.Create // fails if a file appeared since RunInteractive checked
 	if force {
-		return c, c.Save() // atomic: an existing file is replaced only now
+		write = c.Save // atomic: an existing file is replaced only now
 	}
-	return c, c.Create() // fails if a file appeared since RunInteractive checked
+	if err := write(); err != nil {
+		return nil, err
+	}
+	return c, nil
 }
 
 // validSite checks the site as it is typed; config.New checks it

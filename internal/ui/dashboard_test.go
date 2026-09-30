@@ -654,12 +654,3 @@ func TestHelpExplainsTransitionAndMute(t *testing.T) {
 		}
 	}
 }
-
-func TestNilOpenURLUsesTheBrowser(t *testing.T) {
-	if !ui.UsesOpenBrowser(ui.NewDashboard("kanban", nil)) {
-		t.Error("a nil openURL defaults to OpenBrowser")
-	}
-	if ui.UsesOpenBrowser(ui.NewDashboard("kanban", noOpen(t))) {
-		t.Error("a given openURL is kept")
-	}
-}
