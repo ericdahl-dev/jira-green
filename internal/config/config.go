@@ -225,15 +225,35 @@ func (c *Config) SetMuted(key string, muted bool) error {
 	return c.Save()
 }
 
+// Save writes the config atomically: a temp file in the same directory,
+// mode 0600, renamed over the target.
 func (c *Config) Save() error {
 	var buf bytes.Buffer
 	if err := toml.NewEncoder(&buf).Encode(c); err != nil {
 		return err
 	}
-	if err := os.MkdirAll(filepath.Dir(c.path), 0o700); err != nil {
+	dir := filepath.Dir(c.path)
+	if err := os.MkdirAll(dir, 0o700); err != nil {
 		return err
 	}
-	return os.WriteFile(c.path, buf.Bytes(), 0o600)
+	f, err := os.CreateTemp(dir, ".config-*.toml")
+	if err != nil {
+		return err
+	}
+	tmp := f.Name()
+	defer func() { _ = os.Remove(tmp) }() // no-op after a successful rename
+	if _, err := f.Write(buf.Bytes()); err != nil {
+		_ = f.Close()
+		return err
+	}
+	if err := f.Chmod(0o600); err != nil {
+		_ = f.Close()
+		return err
+	}
+	if err := f.Close(); err != nil {
+		return err
+	}
+	return os.Rename(tmp, c.path)
 }
 
 // ResolveToken returns the API token: token_command, then token_env, then the

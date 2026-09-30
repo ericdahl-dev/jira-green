@@ -350,3 +350,24 @@ func TestAccessorsReturnUserValues(t *testing.T) {
 		t.Errorf("jql %q %q %q", c.MineJQL(), c.WaitingJQL(), c.DoneJQL())
 	}
 }
+
+func TestSaveTightensMode(t *testing.T) {
+	p := write(t, minimal)
+	if err := os.Chmod(p, 0o644); err != nil {
+		t.Fatal(err)
+	}
+	c, err := Load(p)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := c.Save(); err != nil {
+		t.Fatal(err)
+	}
+	fi, err := os.Stat(p)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if m := fi.Mode().Perm(); m != 0o600 {
+		t.Errorf("mode %o, want 600", m)
+	}
+}
