@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"net/http"
+	"net/url"
 
 	"github.com/ericdahl-dev/jira-green/internal/model"
 )
@@ -135,7 +136,7 @@ func (c *Client) convert(ctx context.Context, ai apiIssue, flaggedField string) 
 		// Search embeds only the first page of comments; fetch the newest
 		// 100 so a recent mention is not missed.
 		var full commentPage
-		path := "/rest/api/3/issue/" + ai.Key + "/comment?orderBy=-created&maxResults=100"
+		path := "/rest/api/3/issue/" + url.PathEscape(ai.Key) + "/comment?orderBy=-created&maxResults=100"
 		if err := c.do(ctx, http.MethodGet, path, nil, &full); err != nil {
 			d.errs = append(d.errs, fmt.Sprintf("comments: truncated, fetch failed: %v", err))
 		} else {

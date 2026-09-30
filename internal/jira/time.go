@@ -2,6 +2,8 @@ package jira
 
 import (
 	"bytes"
+	"fmt"
+	"strconv"
 	"time"
 )
 
@@ -9,19 +11,29 @@ import (
 // ("2026-09-30T10:00:00.000-0400").
 type Time struct{ time.Time }
 
-const jiraLayout = "2006-01-02T15:04:05.000-0700"
+// layouts are tried in order: Jira's usual format, Jira without
+// milliseconds, then RFC 3339.
+var layouts = []string{"2006-01-02T15:04:05.000-0700", "2006-01-02T15:04:05-0700", time.RFC3339}
 
-// UnmarshalJSON accepts Jira's layout, RFC 3339 as a fallback, and null.
+// UnmarshalJSON accepts null (the zero time) or a JSON string in Jira's
+// layout (with or without milliseconds) or RFC 3339. Anything else is an error.
 func (t *Time) UnmarshalJSON(b []byte) error {
-	if bytes.Equal(b, []byte("null")) || len(b) < 2 {
-		t.Time = time.Time{}
+	t.Time = time.Time{}
+	if bytes.Equal(b, []byte("null")) {
 		return nil
 	}
-	s := string(b[1 : len(b)-1])
-	p, err := time.Parse(jiraLayout, s)
-	if err != nil {
-		p, err = time.Parse(time.RFC3339, s)
+	if len(b) == 0 || b[0] != '"' {
+		return fmt.Errorf("jira: time %s is not a JSON string", b)
 	}
-	t.Time = p
-	return err
+	s, err := strconv.Unquote(string(b))
+	if err != nil {
+		return fmt.Errorf("jira: time %s is not a JSON string", b)
+	}
+	for _, l := range layouts {
+		if p, err := time.Parse(l, s); err == nil {
+			t.Time = p
+			return nil
+		}
+	}
+	return fmt.Errorf("jira: unparseable time %q", s)
 }

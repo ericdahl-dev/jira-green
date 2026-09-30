@@ -3,6 +3,7 @@ package jira_test
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"net/http"
 	"os"
@@ -10,6 +11,8 @@ import (
 	"strings"
 	"testing"
 	"time"
+
+	"github.com/ericdahl-dev/jira-green/internal/jira"
 )
 
 func TestSearchPaginatesAndConverts(t *testing.T) {
@@ -215,5 +218,49 @@ func TestSearchEndlessEmptyPagesHitPageCap(t *testing.T) {
 	}
 	if calls != 50 {
 		t.Errorf("calls %d, want the 50-page cap", calls)
+	}
+}
+
+func TestSearchSendsFieldsAndMaxResults(t *testing.T) {
+	var body map[string]any
+	c := newTest(t, func(w http.ResponseWriter, r *http.Request) {
+		if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+			t.Errorf("decode body: %v", err)
+		}
+		_, _ = w.Write([]byte(`{"isLast":true,"issues":[]}`))
+	})
+	if _, err := c.Search(context.Background(), "project = ABC", "customfield_10021"); err != nil {
+		t.Fatal(err)
+	}
+	var fields []string
+	raw, _ := body["fields"].([]any)
+	for _, f := range raw {
+		s, _ := f.(string)
+		fields = append(fields, s)
+	}
+	want := []string{"summary", "status", "assignee", "parent", "labels", "created", "updated", "comment", "customfield_10021"}
+	if !slices.Equal(fields, want) {
+		t.Errorf("fields %q, want %q", fields, want)
+	}
+	if body["maxResults"] != float64(100) || body["jql"] != "project = ABC" {
+		t.Errorf("body %v", body)
+	}
+}
+
+func TestSearchAPIErrorOnSecondPage(t *testing.T) {
+	c := newTest(t, func(w http.ResponseWriter, r *http.Request) {
+		var body map[string]any
+		_ = json.NewDecoder(r.Body).Decode(&body)
+		if body["nextPageToken"] == "p2" {
+			w.WriteHeader(http.StatusBadRequest)
+			_, _ = w.Write([]byte(`{"errorMessages":["token expired"]}`))
+			return
+		}
+		_, _ = w.Write([]byte(`{"isLast":false,"nextPageToken":"p2","issues":[{"key":"ABC-1","fields":{}}]}`))
+	})
+	issues, err := c.Search(context.Background(), "project = ABC", "")
+	var ae *jira.APIError
+	if !errors.As(err, &ae) || ae.Status != http.StatusBadRequest || issues != nil {
+		t.Fatalf("issues %+v err %v, want a 400 APIError and no partial result", issues, err)
 	}
 }

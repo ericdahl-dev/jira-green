@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"net/http"
+	"slices"
 	"testing"
 	"time"
 )
@@ -18,8 +19,12 @@ func TestBoardColumns(t *testing.T) {
 			{"name":"Code Review","statuses":[{"id":"10"},{"id":"11"}]}]}}`))
 	})
 	cols, err := c.BoardColumns(context.Background(), 7)
-	if err != nil || len(cols) != 2 || cols[1].Name != "Code Review" || cols[1].StatusIDs[1] != "11" {
+	if err != nil || len(cols) != 2 {
 		t.Fatalf("%+v %v", cols, err)
+	}
+	if cols[0].Name != "To Do" || !slices.Equal(cols[0].StatusIDs, []string{"1"}) ||
+		cols[1].Name != "Code Review" || !slices.Equal(cols[1].StatusIDs, []string{"10", "11"}) {
+		t.Errorf("%+v", cols)
 	}
 }
 
@@ -161,5 +166,35 @@ func TestBoardsEmptyPageEndsPagination(t *testing.T) {
 	bs, err := c.Boards(context.Background())
 	if err != nil || len(bs) != 1 || calls != 2 {
 		t.Fatalf("boards %+v err %v calls %d", bs, err, calls)
+	}
+}
+
+func TestIssueKeysArePathEscaped(t *testing.T) {
+	var paths []string
+	c := newTest(t, func(w http.ResponseWriter, r *http.Request) {
+		paths = append(paths, r.URL.EscapedPath())
+		switch {
+		case r.URL.Path == "/rest/api/3/search/jql":
+			_, _ = w.Write([]byte(`{"isLast":true,"issues":[{"key":"A/B-1","fields":{"comment":{"total":2,"comments":[]}}}]}`))
+		case r.Method == http.MethodPost:
+			w.WriteHeader(http.StatusNoContent)
+		default:
+			_, _ = w.Write([]byte(`{"isLast":true}`))
+		}
+	})
+	ctx := context.Background()
+	_, _ = c.StatusChanges(ctx, "A/B-1")
+	_, _ = c.Transitions(ctx, "A/B-1")
+	_ = c.DoTransition(ctx, "A/B-1", "21")
+	_, _ = c.Search(ctx, "project = ABC", "")
+	want := []string{
+		"/rest/api/3/issue/A%2FB-1/changelog",
+		"/rest/api/3/issue/A%2FB-1/transitions",
+		"/rest/api/3/issue/A%2FB-1/transitions",
+		"/rest/api/3/search/jql",
+		"/rest/api/3/issue/A%2FB-1/comment",
+	}
+	if !slices.Equal(paths, want) {
+		t.Errorf("paths\n got %q\nwant %q", paths, want)
 	}
 }

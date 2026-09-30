@@ -3,6 +3,7 @@ package jira
 import (
 	"context"
 	"net/http"
+	"net/url"
 )
 
 // Transition is a workflow move available from an issue's current status.
@@ -23,7 +24,7 @@ func (c *Client) Transitions(ctx context.Context, key string) ([]Transition, err
 			} `json:"to"`
 		} `json:"transitions"`
 	}
-	if err := c.do(ctx, http.MethodGet, "/rest/api/3/issue/"+key+"/transitions", nil, &r); err != nil {
+	if err := c.do(ctx, http.MethodGet, "/rest/api/3/issue/"+url.PathEscape(key)+"/transitions", nil, &r); err != nil {
 		return nil, err
 	}
 	out := make([]Transition, 0, len(r.Transitions))
@@ -36,5 +37,5 @@ func (c *Client) Transitions(ctx context.Context, key string) ([]Transition, err
 // DoTransition moves the issue through the given transition.
 func (c *Client) DoTransition(ctx context.Context, key, transitionID string) error {
 	body := map[string]any{"transition": map[string]string{"id": transitionID}}
-	return c.do(ctx, http.MethodPost, "/rest/api/3/issue/"+key+"/transitions", body, nil)
+	return c.do(ctx, http.MethodPost, "/rest/api/3/issue/"+url.PathEscape(key)+"/transitions", body, nil)
 }

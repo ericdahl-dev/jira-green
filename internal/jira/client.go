@@ -60,7 +60,7 @@ func (c *Client) do(ctx context.Context, method, path string, body, out any) err
 		return err
 	}
 	defer func() { _ = resp.Body.Close() }()
-	if resp.StatusCode >= 300 {
+	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
 		b, _ := io.ReadAll(io.LimitReader(resp.Body, 2048))
 		retry := parseRetryAfter(resp.Header.Get("Retry-After"))
 		if retry == 0 && resp.StatusCode == http.StatusTooManyRequests {

@@ -186,3 +186,50 @@ func TestRetryAfterUnusableOn429DefaultsToMinute(t *testing.T) {
 		}
 	}
 }
+
+func TestTimeRejectsGarbage(t *testing.T) {
+	for _, in := range []string{`1`, `""`, `"garbage"`, `x2026-09-30T10:00:00.000-0400x`, `"2026-09-30T10:00:00.000-0400`, `true`} {
+		var jt jira.Time
+		if err := jt.UnmarshalJSON([]byte(in)); err == nil {
+			t.Errorf("%s: want an error, got %v", in, jt.Time)
+		}
+	}
+}
+
+func TestTimeRFC3339Fallback(t *testing.T) {
+	var jt jira.Time
+	if err := jt.UnmarshalJSON([]byte(`"2026-09-30T10:00:00-04:00"`)); err != nil {
+		t.Fatal(err)
+	}
+	if !jt.Equal(time.Date(2026, 9, 30, 14, 0, 0, 0, time.UTC)) {
+		t.Errorf("got %v", jt.Time)
+	}
+}
+
+func TestTimeWithoutMilliseconds(t *testing.T) {
+	var jt jira.Time
+	if err := jt.UnmarshalJSON([]byte(`"2026-09-30T10:00:00-0400"`)); err != nil {
+		t.Fatal(err)
+	}
+	if !jt.Equal(time.Date(2026, 9, 30, 14, 0, 0, 0, time.UTC)) {
+		t.Errorf("got %v", jt.Time)
+	}
+}
+
+func TestNon2xxBelow200IsAPIError(t *testing.T) {
+	c := newTest(t, func(w http.ResponseWriter, r *http.Request) {
+		conn, buf, err := http.NewResponseController(w).Hijack()
+		if err != nil {
+			t.Errorf("hijack: %v", err)
+			return
+		}
+		defer func() { _ = conn.Close() }()
+		_, _ = buf.WriteString("HTTP/1.1 101 Switching Protocols\r\nConnection: Upgrade\r\nUpgrade: x\r\n\r\n")
+		_ = buf.Flush()
+	})
+	_, err := c.Myself(context.Background())
+	var ae *jira.APIError
+	if !errors.As(err, &ae) || ae.Status != http.StatusSwitchingProtocols {
+		t.Fatalf("want APIError 101, got %v", err)
+	}
+}
