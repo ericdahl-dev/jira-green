@@ -59,7 +59,7 @@ func TestSearchPaginatesAndConverts(t *testing.T) {
 	if !slices.Equal(a.Labels, []string{"blocked"}) || !a.Created.Equal(wantCreated) || !a.Updated.Equal(wantUpdated) {
 		t.Errorf("labels %v created %v updated %v", a.Labels, a.Created, a.Updated)
 	}
-	if len(a.Comments) != 1 || a.Comments[0].AuthorID != "acct-jsmith" ||
+	if len(a.Comments) != 1 || a.Comments[0].AuthorID != "acct-jsmith" || a.Comments[0].AuthorName != "Jane Smith" ||
 		!slices.Equal(a.Comments[0].Mentions, []string{"acct-me"}) {
 		t.Errorf("comments %+v", a.Comments)
 	}
@@ -346,5 +346,18 @@ func TestCountWithoutACountIsAnError(t *testing.T) {
 	c := newTest(t, func(w http.ResponseWriter, r *http.Request) { _, _ = w.Write([]byte(`{}`)) })
 	if n, err := c.Count(context.Background(), "project = ABC"); err == nil {
 		t.Fatalf("got %d, want an error, not a silent 0", n)
+	}
+}
+
+func TestCommentsCarryAuthorName(t *testing.T) {
+	c := newTest(t, func(w http.ResponseWriter, r *http.Request) {
+		_, _ = w.Write([]byte(`{"total":1,"comments":[{"author":{"accountId":"acct-jsmith","displayName":"Jane Smith"},"created":"2026-09-28T09:00:00.000-0400","body":null}]}`))
+	})
+	cms, err := c.Comments(context.Background(), "ABC-7")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(cms) != 1 || cms[0].AuthorID != "acct-jsmith" || cms[0].AuthorName != "Jane Smith" {
+		t.Errorf("comments %+v", cms)
 	}
 }

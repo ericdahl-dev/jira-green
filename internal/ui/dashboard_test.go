@@ -593,3 +593,37 @@ func TestListShowsSnapshotEpicProgress(t *testing.T) {
 		t.Errorf("list header shows the snapshot's progress:\n%s", v)
 	}
 }
+
+func TestOFailureShowsInStatusLine(t *testing.T) {
+	cards := fxCards()
+	cards[0].URL = "https://example.atlassian.net/browse/ABC-2011"
+	d := ui.NewDashboard("kanban", func(string) error { return errors.New("exec: xdg-open not found") })
+	d, _ = d.Update(tea.WindowSizeMsg{Width: 160, Height: 40})
+	d, _ = d.Update(poller.Snapshot{Columns: fxCols, Cards: cards, At: fxAt})
+
+	d = feed(d.Update(key("o")))
+	if got := status(d); !strings.HasPrefix(got, "⚠ open failed: exec: xdg-open not found  ·  updated") {
+		t.Fatalf("status %q", got)
+	}
+	if got := status(press(d, "right")); strings.Contains(got, "open failed") {
+		t.Errorf("the next key clears it: %q", got)
+	}
+}
+
+func TestOFailureInDetailTimesOut(t *testing.T) {
+	defer ui.SetFlashFor(ui.SetFlashFor(time.Millisecond))
+	cards := fxCards()
+	cards[0].URL = "https://example.atlassian.net/browse/ABC-2011"
+	d := ui.NewDashboard("kanban", func(string) error { return errors.New("no browser") })
+	d, _ = d.Update(poller.Snapshot{Columns: fxCols, Cards: cards, At: fxAt})
+	d = press(d, "enter")
+
+	_, cmd := d.Update(key("o"))
+	d, tick := d.Update(run(cmd))
+	if v := d.View(); !strings.Contains(v, "⚠ open failed: no browser") {
+		t.Fatalf("the detail shows the failure:\n%s", v)
+	}
+	if d = feed(d, tick); strings.Contains(d.View(), "open failed") {
+		t.Errorf("it clears after flashFor:\n%s", d.View())
+	}
+}

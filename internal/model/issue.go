@@ -48,9 +48,10 @@ func (i Issue) DisplaySummary() string {
 
 // Comment is one issue comment, with the account IDs it @-mentions.
 type Comment struct {
-	AuthorID string
-	Created  time.Time
-	Mentions []string
+	AuthorID   string
+	AuthorName string // display name; empty when Jira hides it
+	Created    time.Time
+	Mentions   []string
 }
 
 // StatusChange is one status transition from the changelog.

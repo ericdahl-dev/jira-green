@@ -7,6 +7,7 @@ import (
 	"runtime"
 	"slices"
 	"strings"
+	"time"
 
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/ericdahl-dev/jira-green/internal/model"
@@ -28,6 +29,15 @@ type RefreshMsg struct{}
 // OpenManageMsg asks main to show the manage screen. Groups are every card
 // of the latest snapshot, Done included, by epic.
 type OpenManageMsg struct{ Groups []model.EpicGroup }
+
+// openFailedMsg reports that the browser could not be launched.
+type openFailedMsg struct{ err error }
+
+// flashClearMsg ends the flash with the same seq, if it is still showing.
+type flashClearMsg struct{ seq int }
+
+// flashFor is how long a flash stays when no key is pressed.
+var flashFor = 5 * time.Second
 
 // Dashboard is the main screen. It performs no I/O: anything slow goes back
 // to main as a tea.Cmd message.
@@ -52,6 +62,10 @@ type Dashboard struct {
 	width         int
 	height        int
 	openURL       func(string) error
+	// flash is a transient error shown before the status line until the
+	// next key press or flashFor; flashSeq tells its clear timers apart.
+	flash    string
+	flashSeq int
 }
 
 // NewDashboard starts in defaultView ("kanban" or "list"). openURL opens a
@@ -89,6 +103,15 @@ func (d Dashboard) Update(msg tea.Msg) (Dashboard, tea.Cmd) {
 		}
 	case ClosePickerMsg:
 		d.picker = nil
+	case openFailedMsg:
+		d.flashSeq++
+		d.flash = "⚠ open failed: " + msg.err.Error()
+		seq := d.flashSeq
+		return d, tea.Tick(flashFor, func(time.Time) tea.Msg { return flashClearMsg{seq} })
+	case flashClearMsg:
+		if msg.seq == d.flashSeq {
+			d.flash = ""
+		}
 	case tea.KeyMsg:
 		return d.handleKey(msg)
 	}
@@ -99,6 +122,7 @@ func (d Dashboard) handleKey(k tea.KeyMsg) (Dashboard, tea.Cmd) {
 	if k.String() == "ctrl+c" {
 		return d, tea.Quit
 	}
+	d.flash = ""
 	if d.picker != nil {
 		p, cmd := d.picker.Update(k)
 		d.picker = &p
@@ -190,7 +214,12 @@ func (d Dashboard) open(c *model.Card) tea.Cmd {
 		return nil
 	}
 	open, u := d.openURL, c.URL
-	return func() tea.Msg { _ = open(u); return nil }
+	return func() tea.Msg {
+		if err := open(u); err != nil {
+			return openFailedMsg{err}
+		}
+		return nil
+	}
 }
 
 // openPicker shows the transition picker for c and asks main for its
@@ -379,7 +408,11 @@ func (d Dashboard) View() string {
 		return d.picker.View()
 	}
 	if d.detail != nil {
-		return RenderDetail(*d.detail, d.width)
+		v := RenderDetail(*d.detail, d.width)
+		if d.flash != "" {
+			v += truncate(d.flash, d.width) + "\n"
+		}
+		return v
 	}
 	if d.showHelp {
 		return RenderHelp()
@@ -412,6 +445,9 @@ func (d Dashboard) statusLine() string {
 		synced = "updated " + d.snap.At.Format("15:04:05")
 	}
 	parts := []string{synced, keyHints}
+	if d.flash != "" {
+		parts = append([]string{d.flash}, parts...)
+	}
 	switch {
 	case d.snap.AuthFailed:
 		parts = append([]string{"token rejected - check token_command"}, parts...)

@@ -71,3 +71,26 @@ func TestSubtaskShowsItsStory(t *testing.T) {
 		}
 	}
 }
+
+func TestDetailShowsDecodeErrorsOnce(t *testing.T) {
+	iss := model.Issue{Key: "ABC-9", Summary: "Half decoded", Flagged: true, DecodeErrors: []string{"labels: not an array"}}
+	c := model.Evaluate(iss, "To Do", model.LaneMine, model.Rules{}, time.Now(), false)
+	v := ui.RenderDetail(c, 80)
+	if n := strings.Count(v, "labels: not an array"); n != 1 {
+		t.Errorf("decode error shown %d times:\n%s", n, v)
+	}
+	if !strings.Contains(v, "Data incomplete\n  • labels: not an array") || !strings.Contains(v, "Why\n  • flagged\n\n") {
+		t.Errorf("it stays under Data incomplete, and Why keeps the other reasons:\n%s", v)
+	}
+}
+
+func TestDetailNamesCommentAuthor(t *testing.T) {
+	c := detailCard()
+	c.Comments[1].AuthorName = "Jane Smith" // the latest
+	if v := ui.RenderDetail(c, 80); !strings.Contains(v, "latest by Jane Smith on 2026-09-28") {
+		t.Errorf("display name:\n%s", v)
+	}
+	if v := ui.RenderDetail(detailCard(), 80); !strings.Contains(v, "latest by acct-jsmith on") {
+		t.Errorf("no display name falls back to the account ID:\n%s", v)
+	}
+}

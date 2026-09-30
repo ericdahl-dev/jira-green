@@ -41,7 +41,7 @@ func RenderDetail(c model.Card, width int) string {
 			add("  • " + it)
 		}
 	}
-	bullets("Why", c.Reasons)
+	bullets("Why", whyReasons(c))
 	bullets("Data incomplete", c.DecodeErrors)
 
 	if c.URL != "" {
@@ -55,8 +55,23 @@ func RenderDetail(c model.Card, width int) string {
 	return strings.Join(ls, "\n") + "\n"
 }
 
-// commentSummary is "N comments, latest by X on DATE". model.Comment has no
-// body or display name in v1, so X is the author's account ID.
+// dataIncomplete starts the reason model.Evaluate gives for DecodeErrors.
+const dataIncomplete = "data incomplete: "
+
+// whyReasons are c's reasons less the DecodeErrors one: those errors have
+// their own Data incomplete section.
+func whyReasons(c model.Card) []string {
+	var out []string
+	for _, r := range c.Reasons {
+		if len(c.DecodeErrors) == 0 || !strings.HasPrefix(r, dataIncomplete) {
+			out = append(out, r)
+		}
+	}
+	return out
+}
+
+// commentSummary is "N comments, latest by X on DATE". X is the author's
+// display name, or their account ID when Jira hid the name.
 func commentSummary(cs []model.Comment) string {
 	if len(cs) == 0 {
 		return "none"
@@ -71,5 +86,9 @@ func commentSummary(cs []model.Comment) string {
 	if len(cs) == 1 {
 		noun = "comment"
 	}
-	return fmt.Sprintf("%d %s, latest by %s on %s", len(cs), noun, latest.AuthorID, latest.Created.Format("2006-01-02"))
+	who := latest.AuthorName
+	if who == "" {
+		who = latest.AuthorID
+	}
+	return fmt.Sprintf("%d %s, latest by %s on %s", len(cs), noun, who, latest.Created.Format("2006-01-02"))
 }

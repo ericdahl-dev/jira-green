@@ -163,9 +163,10 @@ func toComments(in []apiComment) []model.Comment {
 	var out []model.Comment
 	for _, cm := range in {
 		out = append(out, model.Comment{
-			AuthorID: cm.Author.AccountID,
-			Created:  cm.Created.Time,
-			Mentions: mentions(cm.Body),
+			AuthorID:   cm.Author.AccountID,
+			AuthorName: cm.Author.DisplayName,
+			Created:    cm.Created.Time,
+			Mentions:   mentions(cm.Body),
 		})
 	}
 	return out
