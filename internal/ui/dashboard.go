@@ -440,8 +440,13 @@ func (d Dashboard) View() string {
 const keyHints = "←→↑↓ move  enter detail  t transition  o open  v view  d done  b backlog  r refresh  m manage  q quit  ? help"
 
 func (d Dashboard) statusLine() string {
+	// After a failed poll, At is the last good one.
 	synced := "never synced"
-	if !d.snap.At.IsZero() {
+	switch {
+	case d.snap.At.IsZero():
+	case d.snap.Err != nil:
+		synced = "last good " + d.snap.At.Format("15:04:05")
+	default:
 		synced = "updated " + d.snap.At.Format("15:04:05")
 	}
 	parts := []string{synced, keyHints}

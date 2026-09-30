@@ -104,8 +104,12 @@ func TestStatusLineShowsSyncTime(t *testing.T) {
 func TestStatusLineShowsStaleAndAuth(t *testing.T) {
 	d := loaded(t, "kanban")
 	d, _ = d.Update(poller.Snapshot{Columns: fxCols, Cards: fxCards(), At: fxAt, Err: errors.New("jira: HTTP 502 Bad Gateway")})
-	if got := status(d); !strings.HasPrefix(got, "⚪ stale: jira: HTTP 502 Bad Gateway  ·  updated 14:05:09") {
+	if got := status(d); !strings.HasPrefix(got, "⚪ stale: jira: HTTP 502 Bad Gateway  ·  last good 14:05:09  ·  ←") {
 		t.Errorf("stale status %q", got)
+	}
+	d, _ = d.Update(poller.Snapshot{Err: errors.New("dial tcp: no route to host")})
+	if got := status(d); !strings.HasPrefix(got, "⚪ stale: dial tcp: no route to host  ·  never synced  ·  ←") {
+		t.Errorf("stale before any good poll %q", got)
 	}
 	d, _ = d.Update(poller.Snapshot{Err: errors.New("jira: HTTP 401"), AuthFailed: true})
 	if got := status(d); !strings.HasPrefix(got, "token rejected - check token_command  ·  never synced") {
