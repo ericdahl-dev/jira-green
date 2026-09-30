@@ -40,7 +40,7 @@ func RenderKanban(b model.Board, cur Cursor, width int) string {
 	if n == 0 {
 		return "no columns"
 	}
-	colW := max(12, (width-1)/n)
+	colW := max(minColWidth, (width-1)/n)
 	var sb strings.Builder
 
 	var head strings.Builder
