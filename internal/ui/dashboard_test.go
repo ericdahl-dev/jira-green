@@ -645,3 +645,12 @@ func TestNarrowFallbackKeepsTheSelectedCard(t *testing.T) {
 		t.Errorf("widening: the kanban selects %q, want the list's ABC-1836", got)
 	}
 }
+
+func TestHelpExplainsTransitionAndMute(t *testing.T) {
+	v := press(loaded(t, "kanban"), "?").View()
+	for _, want := range []string{"t then enter, y to confirm", "space to mute"} {
+		if !strings.Contains(v, want) {
+			t.Errorf("help lacks %q:\n%s", want, v)
+		}
+	}
+}
