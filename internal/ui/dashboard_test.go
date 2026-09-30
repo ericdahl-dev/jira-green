@@ -122,7 +122,7 @@ func TestStatusLineShowsStaleAndAuth(t *testing.T) {
 		t.Errorf("stale before any good poll %q", got)
 	}
 	d, _ = d.Update(poller.Snapshot{Err: errors.New("jira: HTTP 401"), AuthFailed: true})
-	if got := status(d); !strings.HasPrefix(got, "token rejected - check token_command  ·  never synced") {
+	if got := status(d); !strings.HasPrefix(got, "token rejected - fix the token and restart  ·  never synced") {
 		t.Errorf("auth status %q", got)
 	}
 }

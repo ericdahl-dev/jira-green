@@ -513,7 +513,7 @@ func (d Dashboard) statusLine() string {
 	}
 	switch {
 	case d.snap.AuthFailed:
-		parts = append([]string{"token rejected - check token_command"}, parts...)
+		parts = append([]string{"token rejected - fix the token and restart"}, parts...)
 	case d.snap.Err != nil:
 		parts = append([]string{model.Stale.Emoji() + " stale: " + d.snap.Err.Error()}, parts...)
 	}
