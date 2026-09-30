@@ -7,6 +7,7 @@ import "fmt"
 // worst of several is simply the maximum.
 type Stoplight int
 
+// Stoplight values, least to most severe.
 const (
 	Green Stoplight = iota
 	Stale
@@ -14,6 +15,7 @@ const (
 	Red
 )
 
+// Emoji is the colored circle shown on a card; unknown values render green.
 func (s Stoplight) Emoji() string {
 	switch s {
 	case Red:

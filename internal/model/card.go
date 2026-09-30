@@ -9,6 +9,7 @@ import (
 // Lane is a kanban swimlane.
 type Lane int
 
+// The swimlanes, top to bottom.
 const (
 	LaneMine Lane = iota
 	LaneWaiting

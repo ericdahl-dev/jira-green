@@ -1,4 +1,4 @@
-package config
+package config_test
 
 import (
 	"os"
@@ -7,6 +7,8 @@ import (
 	"strings"
 	"testing"
 	"time"
+
+	"github.com/ericdahl-dev/jira-green/internal/config"
 )
 
 func write(t *testing.T, body string) string {
@@ -27,7 +29,7 @@ const minimal = `
 `
 
 func TestLoadDefaults(t *testing.T) {
-	c, err := Load(write(t, minimal))
+	c, err := config.Load(write(t, minimal))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -40,7 +42,7 @@ func TestLoadDefaults(t *testing.T) {
 	if c.StuckAlertAfter() != 2*time.Hour {
 		t.Errorf("stuck_alert_after %v", c.StuckAlertAfter())
 	}
-	if c.MineJQL() != DefaultMineJQL || c.WaitingJQL() != DefaultWaitingJQL || c.DoneJQL() != DefaultDoneJQL {
+	if c.MineJQL() != config.DefaultMineJQL || c.WaitingJQL() != config.DefaultWaitingJQL || c.DoneJQL() != config.DefaultDoneJQL {
 		t.Errorf("default JQL %q %q %q", c.MineJQL(), c.WaitingJQL(), c.DoneJQL())
 	}
 	r, err := c.Rules("acct-me")
@@ -56,15 +58,19 @@ func TestLoadDefaults(t *testing.T) {
 }
 
 func TestLoadRejects(t *testing.T) {
-	for name, body := range map[string]string{
-		"no site":   `[jira]` + "\n" + `board_id = 1`,
-		"no board":  `[jira]` + "\n" + `site = "https://example.atlassian.net"`,
-		"bad view":  minimal + "\n[settings]\n  default_view = \"grid\"\n",
-		"bad stuck": minimal + "\n[settings]\n  stuck_alert_after = \"later\"\n",
-		"bad age":   minimal + "\n[thresholds.\"UA\"]\n  yellow = \"soon\"\n",
-	} {
-		if _, err := Load(write(t, body)); err == nil {
-			t.Errorf("%s: want error", name)
+	cases := []struct {
+		name, body, want string
+	}{
+		{"no site", "[jira]\n  email = \"me@example.com\"\n  board_id = 1\n", "jira.site is required"},
+		{"no board", "[jira]\n  site = \"https://example.atlassian.net\"\n  email = \"me@example.com\"\n", "jira.board_id is required"},
+		{"bad view", minimal + "\n[settings]\n  default_view = \"grid\"\n", "settings.default_view"},
+		{"bad stuck", minimal + "\n[settings]\n  stuck_alert_after = \"later\"\n", "settings.stuck_alert_after"},
+		{"bad age", minimal + "\n[thresholds.\"UA\"]\n  yellow = \"soon\"\n", `thresholds."UA".yellow`},
+	}
+	for _, c := range cases {
+		_, err := config.Load(write(t, c.body))
+		if err == nil || !strings.Contains(err.Error(), c.want) {
+			t.Errorf("%s: want error containing %q, got %v", c.name, c.want, err)
 		}
 	}
 }
@@ -72,17 +78,17 @@ func TestLoadRejects(t *testing.T) {
 func TestResolveTokenOrder(t *testing.T) {
 	t.Setenv("JG_TEST_TOKEN", "from-env")
 	t.Setenv("JIRA_API_TOKEN", "fallback")
-	if tok, _ := ResolveToken(Jira{TokenCommand: "printf from-cmd", TokenEnv: "JG_TEST_TOKEN"}); tok != "from-cmd" {
-		t.Errorf("cmd first, got %q", tok)
+	if tok, err := config.ResolveToken(config.Jira{TokenCommand: "printf from-cmd", TokenEnv: "JG_TEST_TOKEN"}); err != nil || tok != "from-cmd" {
+		t.Errorf("cmd first, got %q, %v", tok, err)
 	}
-	if tok, _ := ResolveToken(Jira{TokenEnv: "JG_TEST_TOKEN"}); tok != "from-env" {
-		t.Errorf("env second, got %q", tok)
+	if tok, err := config.ResolveToken(config.Jira{TokenEnv: "JG_TEST_TOKEN"}); err != nil || tok != "from-env" {
+		t.Errorf("env second, got %q, %v", tok, err)
 	}
-	if tok, _ := ResolveToken(Jira{}); tok != "fallback" {
-		t.Errorf("JIRA_API_TOKEN last, got %q", tok)
+	if tok, err := config.ResolveToken(config.Jira{}); err != nil || tok != "fallback" {
+		t.Errorf("JIRA_API_TOKEN last, got %q, %v", tok, err)
 	}
 	t.Setenv("JIRA_API_TOKEN", "")
-	if _, err := ResolveToken(Jira{}); err == nil {
+	if _, err := config.ResolveToken(config.Jira{}); err == nil {
 		t.Error("want error with no token source")
 	}
 }
@@ -93,36 +99,48 @@ func TestResolveTokenCommandErrors(t *testing.T) {
 		"fails":     "echo nope >&2; exit 3",
 		"no output": "true",
 	} {
-		if _, err := ResolveToken(Jira{TokenCommand: cmd, TokenEnv: "JG_TEST_TOKEN"}); err == nil {
+		if _, err := config.ResolveToken(config.Jira{TokenCommand: cmd, TokenEnv: "JG_TEST_TOKEN"}); err == nil {
 			t.Errorf("%s: want error, not a fall-through", name)
 		}
 	}
 }
 
 func TestMuteRoundTrip(t *testing.T) {
-	c, _ := Load(write(t, minimal))
+	c, err := config.Load(write(t, minimal))
+	if err != nil {
+		t.Fatal(err)
+	}
 	if err := c.SetMuted("ABC-9", true); err != nil {
 		t.Fatal(err)
 	}
-	c2, _ := Load(c.Path())
+	c2, err := config.Load(c.Path())
+	if err != nil {
+		t.Fatal(err)
+	}
 	if !c2.IsMuted("ABC-9") || c2.IsMuted("ABC-1") {
 		t.Errorf("mutes %v", c2.Muted)
 	}
 }
 
 func TestUnmuteRoundTrip(t *testing.T) {
-	c, _ := Load(write(t, "muted = [\"ABC-9\", \"ABC-2\"]\n"+minimal))
+	c, err := config.Load(write(t, "muted = [\"ABC-9\", \"ABC-2\"]\n"+minimal))
+	if err != nil {
+		t.Fatal(err)
+	}
 	if err := c.SetMuted("ABC-9", false); err != nil {
 		t.Fatal(err)
 	}
-	c2, _ := Load(c.Path())
+	c2, err := config.Load(c.Path())
+	if err != nil {
+		t.Fatal(err)
+	}
 	if c2.IsMuted("ABC-9") || !c2.IsMuted("ABC-2") {
 		t.Errorf("mutes %v", c2.Muted)
 	}
 }
 
 func TestLoadTrimsSiteSlash(t *testing.T) {
-	c, err := Load(write(t, "[jira]\n  site = \"https://example.atlassian.net/\"\n  email = \"me@example.com\"\n  board_id = 7\n"))
+	c, err := config.Load(write(t, "[jira]\n  site = \"https://example.atlassian.net/\"\n  email = \"me@example.com\"\n  board_id = 7\n"))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -133,14 +151,14 @@ func TestLoadTrimsSiteSlash(t *testing.T) {
 
 func TestSaveKeepsWebhooks(t *testing.T) {
 	body := minimal + "\n[[webhooks]]\n  url = \"https://hooks.example.com/x\"\n  secret = \"s\"\n"
-	c, err := Load(write(t, body))
+	c, err := config.Load(write(t, body))
 	if err != nil {
 		t.Fatal(err)
 	}
 	if err := c.SetMuted("ABC-9", true); err != nil {
 		t.Fatal(err)
 	}
-	c2, err := Load(c.Path())
+	c2, err := config.Load(c.Path())
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -151,12 +169,12 @@ func TestSaveKeepsWebhooks(t *testing.T) {
 
 func TestDefaultPath(t *testing.T) {
 	t.Setenv("XDG_CONFIG_HOME", "/xdg")
-	if p, err := DefaultPath(); err != nil || p != filepath.Join("/xdg", "jira-green", "config.toml") {
+	if p, err := config.DefaultPath(); err != nil || p != filepath.Join("/xdg", "jira-green", "config.toml") {
 		t.Errorf("xdg path %q, %v", p, err)
 	}
 	t.Setenv("XDG_CONFIG_HOME", "")
 	t.Setenv("HOME", "/home/u")
-	if p, err := DefaultPath(); err != nil || p != filepath.Join("/home/u", ".config", "jira-green", "config.toml") {
+	if p, err := config.DefaultPath(); err != nil || p != filepath.Join("/home/u", ".config", "jira-green", "config.toml") {
 		t.Errorf("home path %q, %v", p, err)
 	}
 }
@@ -164,18 +182,18 @@ func TestDefaultPath(t *testing.T) {
 func TestDefaultPathNoHome(t *testing.T) {
 	t.Setenv("XDG_CONFIG_HOME", "")
 	t.Setenv("HOME", "")
-	if p, err := DefaultPath(); err == nil {
+	if p, err := config.DefaultPath(); err == nil {
 		t.Errorf("want error with no home directory, got %q", p)
 	}
 }
 
 func TestWriteStarter(t *testing.T) {
 	p := filepath.Join(t.TempDir(), "sub", "config.toml")
-	j := Jira{Site: "https://example.atlassian.net", Email: "me@example.com", TokenEnv: "JG_TEST_TOKEN", BoardID: 7}
-	if _, err := WriteStarter(p, j); err != nil {
+	j := config.Jira{Site: "https://example.atlassian.net", Email: "me@example.com", TokenEnv: "JG_TEST_TOKEN", BoardID: 7}
+	if _, err := config.WriteStarter(p, j); err != nil {
 		t.Fatal(err)
 	}
-	c, err := Load(p)
+	c, err := config.Load(p)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -185,13 +203,13 @@ func TestWriteStarter(t *testing.T) {
 	if r, err := c.Rules(""); err != nil || r.Thresholds["In Progress"].Red != 5*24*time.Hour {
 		t.Errorf("starter rules %+v, %v", r, err)
 	}
-	if _, err := WriteStarter(p, j); err == nil {
+	if _, err := config.WriteStarter(p, j); err == nil {
 		t.Error("want error: starter must not overwrite")
 	}
 }
 
 func TestThresholdsMergeKeepsOtherDefaults(t *testing.T) {
-	c, err := Load(write(t, minimal+"\n[thresholds.\"In Progress\"]\n  yellow = \"4d\"\n  red = \"6d\"\n"))
+	c, err := config.Load(write(t, minimal+"\n[thresholds.\"In Progress\"]\n  yellow = \"4d\"\n  red = \"6d\"\n"))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -208,7 +226,7 @@ func TestThresholdsMergeKeepsOtherDefaults(t *testing.T) {
 }
 
 func TestThresholdsOverrideReplacesColumn(t *testing.T) {
-	c, err := Load(write(t, minimal+"\n[thresholds.\"Code Review\"]\n  yellow = \"4h\"\n"))
+	c, err := config.Load(write(t, minimal+"\n[thresholds.\"Code Review\"]\n  yellow = \"4h\"\n"))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -222,7 +240,7 @@ func TestThresholdsOverrideReplacesColumn(t *testing.T) {
 }
 
 func TestThresholdsEmptyEntryDisablesColumn(t *testing.T) {
-	c, err := Load(write(t, minimal+"\n[thresholds.\"UA\"]\n"))
+	c, err := config.Load(write(t, minimal+"\n[thresholds.\"UA\"]\n"))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -239,7 +257,7 @@ func TestThresholdsEmptyEntryDisablesColumn(t *testing.T) {
 }
 
 func TestThresholdsAddsUserColumn(t *testing.T) {
-	c, err := Load(write(t, minimal+"\n[thresholds.\"QA\"]\n  red = \"3d\"\n"))
+	c, err := config.Load(write(t, minimal+"\n[thresholds.\"QA\"]\n  red = \"3d\"\n"))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -257,40 +275,46 @@ func TestThresholdsAddsUserColumn(t *testing.T) {
 
 func TestThresholdsSaveRoundTrip(t *testing.T) {
 	body := minimal + "\n[thresholds.\"UA\"]\n\n[thresholds.\"QA\"]\n  red = \"3d\"\n"
-	c, err := Load(write(t, body))
+	c, err := config.Load(write(t, body))
 	if err != nil {
 		t.Fatal(err)
 	}
-	want, _ := c.Rules("")
+	want, err := c.Rules("")
+	if err != nil {
+		t.Fatal(err)
+	}
 	if err := c.Save(); err != nil {
 		t.Fatal(err)
 	}
-	c2, err := Load(c.Path())
+	c2, err := config.Load(c.Path())
 	if err != nil {
 		t.Fatal(err)
 	}
-	got, _ := c2.Rules("")
+	got, err := c2.Rules("")
+	if err != nil {
+		t.Fatal(err)
+	}
 	if !reflect.DeepEqual(got, want) {
 		t.Errorf("after save got %+v, want %+v", got.Thresholds, want.Thresholds)
 	}
 }
 
 func TestLoadRejectsUnknownKey(t *testing.T) {
-	_, err := Load(write(t, minimal+"  token_cmd = \"pass jira\"\n"))
+	_, err := config.Load(write(t, minimal+"  token_cmd = \"pass jira\"\n"))
 	if err == nil || !strings.Contains(err.Error(), "jira.token_cmd") {
 		t.Errorf("want unknown-key error naming jira.token_cmd, got %v", err)
 	}
 }
 
 func TestLoadRejectsMisplacedMuted(t *testing.T) {
-	_, err := Load(write(t, minimal+"muted = [\"ABC-9\"]\n"))
+	_, err := config.Load(write(t, minimal+"muted = [\"ABC-9\"]\n"))
 	if err == nil || !strings.Contains(err.Error(), "jira.muted") {
 		t.Errorf("want unknown-key error naming jira.muted, got %v", err)
 	}
 }
 
 func TestSaveKeepsOnlyWhatUserWrote(t *testing.T) {
-	c, err := Load(write(t, minimal))
+	c, err := config.Load(write(t, minimal))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -309,14 +333,14 @@ func TestSaveKeepsOnlyWhatUserWrote(t *testing.T) {
 }
 
 func TestEmptyBlockedLabelsSurvivesSave(t *testing.T) {
-	c, err := Load(write(t, "blocked_labels = []\n"+minimal))
+	c, err := config.Load(write(t, "blocked_labels = []\n"+minimal))
 	if err != nil {
 		t.Fatal(err)
 	}
 	if err := c.SetMuted("ABC-9", true); err != nil {
 		t.Fatal(err)
 	}
-	c2, err := Load(c.Path())
+	c2, err := config.Load(c.Path())
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -345,7 +369,7 @@ func TestAccessorsReturnUserValues(t *testing.T) {
   waiting = "project = ABC AND reporter = currentUser()"
   done = "project = ABC AND statusCategory = Done"
 `
-	c, err := Load(write(t, body))
+	c, err := config.Load(write(t, body))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -362,7 +386,7 @@ func TestSaveTightensMode(t *testing.T) {
 	if err := os.Chmod(p, 0o644); err != nil {
 		t.Fatal(err)
 	}
-	c, err := Load(p)
+	c, err := config.Load(p)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -391,7 +415,7 @@ func TestLoadValidation(t *testing.T) {
 		{"yellow equals red", minimal + "\n[thresholds.\"UA\"]\n  yellow = \"1d\"\n  red = \"24h\"\n", "yellow must be less than red"},
 	}
 	for _, c := range cases {
-		_, err := Load(write(t, c.body))
+		_, err := config.Load(write(t, c.body))
 		if err == nil || !strings.Contains(err.Error(), c.want) {
 			t.Errorf("%s: want error containing %q, got %v", c.name, c.want, err)
 		}
@@ -401,7 +425,7 @@ func TestLoadValidation(t *testing.T) {
 func TestLoadValidationReportsFirstColumnInOrder(t *testing.T) {
 	body := minimal + "\n[thresholds.\"Zeta\"]\n  yellow = \"soon\"\n[thresholds.\"Alpha\"]\n  yellow = \"soon\"\n[thresholds.\"Mid\"]\n  red = \"later\"\n"
 	for range 20 {
-		_, err := Load(write(t, body))
+		_, err := config.Load(write(t, body))
 		if err == nil || !strings.Contains(err.Error(), `"Alpha"`) {
 			t.Fatalf("want the error for the first column in sorted order (Alpha), got %v", err)
 		}
@@ -409,7 +433,7 @@ func TestLoadValidationReportsFirstColumnInOrder(t *testing.T) {
 }
 
 func TestLoadRejectsLiteralToken(t *testing.T) {
-	_, err := Load(write(t, minimal+"  token = \"secret\"\n"))
+	_, err := config.Load(write(t, minimal+"  token = \"secret\"\n"))
 	if err == nil || !strings.Contains(err.Error(), "jira.token") {
 		t.Errorf("want unknown-key error naming jira.token, got %v", err)
 	}
@@ -419,7 +443,7 @@ func TestResolveTokenEnvUnsetIsAnError(t *testing.T) {
 	t.Setenv("JIRA_API_TOKEN", "fallback")
 	for _, v := range []string{"", "   "} {
 		t.Setenv("JG_UNSET_TOKEN", v)
-		tok, err := ResolveToken(Jira{TokenEnv: "JG_UNSET_TOKEN"})
+		tok, err := config.ResolveToken(config.Jira{TokenEnv: "JG_UNSET_TOKEN"})
 		if err == nil || !strings.Contains(err.Error(), `token_env "JG_UNSET_TOKEN" is unset`) {
 			t.Errorf("value %q: want token_env unset error, got token %q, err %v", v, tok, err)
 		}
@@ -427,11 +451,9 @@ func TestResolveTokenEnvUnsetIsAnError(t *testing.T) {
 }
 
 func TestResolveTokenCommandTimesOut(t *testing.T) {
-	old := tokenCommandTimeout
-	tokenCommandTimeout = 100 * time.Millisecond
-	t.Cleanup(func() { tokenCommandTimeout = old })
+	t.Cleanup(config.SetTokenCommandTimeout(100 * time.Millisecond))
 	start := time.Now()
-	_, err := ResolveToken(Jira{TokenCommand: "sleep 5; echo late"})
+	_, err := config.ResolveToken(config.Jira{TokenCommand: "sleep 5; echo late"})
 	if err == nil {
 		t.Fatal("want timeout error")
 	}
@@ -442,8 +464,8 @@ func TestResolveTokenCommandTimesOut(t *testing.T) {
 
 func TestWriteStarterExistingFile(t *testing.T) {
 	p := write(t, minimal)
-	j := Jira{Site: "https://example.atlassian.net", Email: "me@example.com", BoardID: 7}
-	_, err := WriteStarter(p, j)
+	j := config.Jira{Site: "https://example.atlassian.net", Email: "me@example.com", BoardID: 7}
+	_, err := config.WriteStarter(p, j)
 	if err == nil || !strings.Contains(err.Error(), "already exists") || strings.Contains(err.Error(), "--force") {
 		t.Errorf("want plain already-exists error, got %v", err)
 	}
@@ -456,8 +478,8 @@ func TestWriteStarterStatError(t *testing.T) {
 	}
 	t.Cleanup(func() { _ = os.Chmod(dir, 0o700) })
 	p := filepath.Join(dir, "config.toml")
-	j := Jira{Site: "https://example.atlassian.net", Email: "me@example.com", BoardID: 7}
-	_, err := WriteStarter(p, j)
+	j := config.Jira{Site: "https://example.atlassian.net", Email: "me@example.com", BoardID: 7}
+	_, err := config.WriteStarter(p, j)
 	if err == nil || !strings.Contains(err.Error(), p) {
 		t.Errorf("want an error naming %s from the existence check, got %v", p, err)
 	}

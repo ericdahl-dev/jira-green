@@ -5,9 +5,10 @@ import (
 	"sort"
 )
 
+// Names for the synthetic board column and list-view group.
 const (
-	OtherColumn = "Other"
-	NoEpic      = "No epic"
+	OtherColumn = "Other"   // column for statuses not mapped to any board column
+	NoEpic      = "No epic" // list-view group for cards without an epic
 )
 
 // Column is a board column and the status IDs mapped to it.
@@ -37,6 +38,7 @@ type Board struct {
 	cells   map[cellKey][]Card
 }
 
+// Cell returns the cards in one lane and column, worst first.
 func (b Board) Cell(l Lane, column string) []Card { return b.cells[cellKey{l, column}] }
 
 // LaneLight is the worst card in a lane.

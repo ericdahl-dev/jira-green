@@ -20,6 +20,8 @@ import (
 	"github.com/ericdahl-dev/jira-green/internal/model"
 )
 
+// Settings is the optional [settings] table. Zero values mean "use the
+// default"; read them through the Config accessors.
 type Settings struct {
 	PollIntervalSeconds         int    `toml:"poll_interval_seconds,omitempty"`
 	BoardRefreshIntervalSeconds int    `toml:"board_refresh_interval_seconds,omitempty"`
@@ -27,6 +29,7 @@ type Settings struct {
 	DefaultView                 string `toml:"default_view,omitempty"` // "kanban" | "list"
 }
 
+// Jira is the [jira] table: the site, account, token source, and board.
 type Jira struct {
 	Site         string `toml:"site"`
 	Email        string `toml:"email,omitempty"`
@@ -36,22 +39,29 @@ type Jira struct {
 	FlaggedField string `toml:"flagged_field,omitempty"` // e.g. customfield_10021; found by init
 }
 
+// JQL is the optional [jql] table of lane queries. Read it through
+// MineJQL, WaitingJQL, and DoneJQL.
 type JQL struct {
 	Mine    string `toml:"mine,omitempty"`
 	Waiting string `toml:"waiting,omitempty"`
 	Done    string `toml:"done,omitempty"`
 }
 
+// Age is one [thresholds."Column"] table: ages written like "3d" or "12h".
+// A table with neither level disables that column.
 type Age struct {
 	Yellow string `toml:"yellow,omitempty"`
 	Red    string `toml:"red,omitempty"`
 }
 
+// Webhook is one [[webhooks]] entry that receives stuck-card alerts.
 type Webhook struct {
 	URL    string `toml:"url"`
 	Secret string `toml:"secret,omitempty"`
 }
 
+// Config is config.toml as the user wrote it. Defaults are not stored in
+// it; they are resolved by the accessor methods.
 type Config struct {
 	Settings      Settings       `toml:"settings,omitempty"`
 	Jira          Jira           `toml:"jira"`
@@ -64,6 +74,7 @@ type Config struct {
 	path string
 }
 
+// Default lane queries, used when [jql] leaves a key unset.
 const (
 	DefaultMineJQL    = `assignee = currentUser() AND sprint IN openSprints() AND statusCategory != Done`
 	DefaultWaitingJQL = `(reporter = currentUser() OR watcher = currentUser()) AND assignee != currentUser() AND statusCategory != Done`
@@ -93,6 +104,7 @@ func DefaultPath() (string, error) {
 	return filepath.Join(base, "jira-green", "config.toml"), nil
 }
 
+// Load reads and validates the config at path. Unknown keys are an error.
 func Load(path string) (*Config, error) {
 	var c Config
 	md, err := toml.DecodeFile(path, &c)
@@ -232,8 +244,10 @@ func (c *Config) Rules(me string) (model.Rules, error) {
 	return r, nil
 }
 
+// Path is the file the config was loaded from and saves to.
 func (c *Config) Path() string { return c.path }
 
+// IsMuted reports whether an issue or epic key is muted.
 func (c *Config) IsMuted(key string) bool { return slices.Contains(c.Muted, key) }
 
 // SetMuted adds or removes a key from the mute list and saves.
