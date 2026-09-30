@@ -43,7 +43,7 @@ Board config is refreshed every 10 minutes. The Done column is hidden by default
 JQL queries, each overridable under `[jql]`:
 
 - **Mine**: `assignee = currentUser() AND sprint IN openSprints() AND statusCategory != Done`
-- **Waiting on others**: `(reporter = currentUser() OR watcher = currentUser()) AND assignee != currentUser() AND statusCategory != Done`
+- **Waiting on others**: `(reporter = currentUser() OR watcher = currentUser()) AND (assignee != currentUser() OR assignee IS EMPTY) AND statusCategory != Done`
 - **Backlog** (`[jql] backlog`): `assignee = currentUser() AND statusCategory != Done AND (sprint IS EMPTY OR sprint NOT IN openSprints())`.
   Collapsed by default in the UI. The same health rules apply, so an aging Code Review ticket
   in the backlog still goes yellow or red.
