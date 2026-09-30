@@ -15,6 +15,7 @@ import (
 
 type fakeAPI struct {
 	myselfErr error
+	findErr   error
 	flagged   string
 }
 
@@ -23,7 +24,7 @@ func (f fakeAPI) Myself(context.Context) (jira.User, error) {
 }
 
 func (f fakeAPI) FindFieldID(context.Context, string) (string, error) {
-	return f.flagged, nil
+	return f.flagged, f.findErr
 }
 
 func answers() wizard.Answers {
@@ -165,6 +166,27 @@ func TestFinishRequiresExactlyOneTokenSource(t *testing.T) {
 			}
 			if _, err := os.Stat(path); !errors.Is(err, os.ErrNotExist) {
 				t.Fatalf("config written: %v", err)
+			}
+		})
+	}
+}
+
+func TestFinishForceKeepsOldFileWhenJiraFails(t *testing.T) {
+	for name, api := range map[string]fakeAPI{
+		"Myself":      {myselfErr: errors.New("401 Unauthorized")},
+		"FindFieldID": {findErr: errors.New("500 Internal Server Error")},
+	} {
+		t.Run(name, func(t *testing.T) {
+			path := filepath.Join(t.TempDir(), "config.toml")
+			old := []byte("[jira]\nsite = \"https://old.atlassian.net\"\n")
+			if err := os.WriteFile(path, old, 0o600); err != nil {
+				t.Fatal(err)
+			}
+			if _, err := wizard.Finish(context.Background(), api, answers(), path, true); err == nil {
+				t.Fatal("want error")
+			}
+			if b, _ := os.ReadFile(path); string(b) != string(old) {
+				t.Fatalf("file changed: %q", b)
 			}
 		})
 	}
