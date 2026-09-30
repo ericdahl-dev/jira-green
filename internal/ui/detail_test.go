@@ -112,3 +112,11 @@ func TestDetailWhyKeepsEveryReason(t *testing.T) {
 		t.Errorf("a reason was dropped for its wording:\n%s", v)
 	}
 }
+
+func TestDetailDoneCardShowsNoAge(t *testing.T) {
+	c := card("ABC-1900", "Shipped thing", "Done", model.LaneDone, model.Green, 0, "", "Me")
+	ls := lines(ui.RenderDetail(c, 80))
+	if i := lineWith(ls, "Age"); i >= 0 {
+		t.Errorf("Done card has an Age line: %q", ls[i])
+	}
+}

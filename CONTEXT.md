@@ -11,6 +11,7 @@ Terms used in the code, the docs, and the UI. The code is authoritative.
 - **Other**: the synthetic column for a status no board column maps. It appears only when a
   card uses it.
 - **Card**: one issue placed on the dashboard: its lane, column, stoplight, age, and reasons.
+  A Done card has no age: the poller skips its changelog.
 - **Stoplight**: a card's health. Red (flagged, a blocked label, a column named like a blocked
   label, or over the column's red threshold), Yellow (over the yellow threshold, or an unanswered mention), Stale, or Green.
   A lane's light is its worst card.

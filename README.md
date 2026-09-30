@@ -357,7 +357,8 @@ separate from the reasons for its light.
 
 **Age** is time in the current status, read from the changelog. The changelog is fetched again
 only when an issue changes. A Backlog card in a column with no threshold (To Do, by default)
-skips the changelog and uses its created date instead, since age there colors nothing.
+skips the changelog and uses its created date instead, since age there colors nothing. Done
+cards skip the changelog too, so they show no age.
 
 **Epic progress.** The list view's epic headers show `N/M done`: the epic's child issues in the
 Done status category, out of all of them. The counts come from Jira's approximate-count search,

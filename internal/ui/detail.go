@@ -33,7 +33,9 @@ func detailLines(c model.Card, width int) (body, hint []string) {
 	case c.EpicKey != "":
 		field("Epic", c.EpicKey) // as model.ByEpic names it
 	}
-	field("Age", ageFlag(c))
+	if c.Lane != model.LaneDone { // Done cards carry no age; a flag still shows under Why
+		field("Age", ageFlag(c))
+	}
 	assignee := c.AssigneeName
 	if assignee == "" {
 		assignee = "unassigned"

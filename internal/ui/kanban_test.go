@@ -197,3 +197,17 @@ func TestKanbanBacklogOpen(t *testing.T) {
 		t.Errorf("Backlog cards are mine and name no assignee:\n%s", strings.Join(ls, "\n"))
 	}
 }
+
+func TestKanbanDoneCardShowsNoAge(t *testing.T) {
+	// Done cards skip the changelog, so their age is a meaningless 0.
+	cards := []model.Card{card("ABC-1900", "Shipped thing", "Done", model.LaneDone, model.Green, 0, "", "Jane Smith")}
+	b := model.Layout(fxCols, cards, true)
+	ls := lines(ui.RenderKanban(b, ui.Cursor{Lane: model.LaneMine}, 80, ui.KanbanOptions{}))
+	at := lineWith(ls, "ABC-1900")
+	if at < 0 {
+		t.Fatalf("Done card missing:\n%s", strings.Join(ls, "\n"))
+	}
+	if got := strings.TrimSpace(ls[at+2]); got != "@jane" {
+		t.Errorf("Done meta = %q, want the assignee and no age", got)
+	}
+}
