@@ -78,9 +78,6 @@ func TestResolveTokenOrder(t *testing.T) {
 	if tok, _ := ResolveToken(Jira{TokenEnv: "JG_TEST_TOKEN"}); tok != "from-env" {
 		t.Errorf("env second, got %q", tok)
 	}
-	if tok, _ := ResolveToken(Jira{Token: "literal"}); tok != "literal" {
-		t.Errorf("literal third, got %q", tok)
-	}
 	if tok, _ := ResolveToken(Jira{}); tok != "fallback" {
 		t.Errorf("JIRA_API_TOKEN last, got %q", tok)
 	}
@@ -91,11 +88,12 @@ func TestResolveTokenOrder(t *testing.T) {
 }
 
 func TestResolveTokenCommandErrors(t *testing.T) {
+	t.Setenv("JG_TEST_TOKEN", "from-env")
 	for name, cmd := range map[string]string{
 		"fails":     "echo nope >&2; exit 3",
 		"no output": "true",
 	} {
-		if _, err := ResolveToken(Jira{TokenCommand: cmd, Token: "literal"}); err == nil {
+		if _, err := ResolveToken(Jira{TokenCommand: cmd, TokenEnv: "JG_TEST_TOKEN"}); err == nil {
 			t.Errorf("%s: want error, not a fall-through", name)
 		}
 	}
@@ -399,5 +397,37 @@ func TestLoadValidationReportsFirstColumnInOrder(t *testing.T) {
 		if err == nil || !strings.Contains(err.Error(), `"Alpha"`) {
 			t.Fatalf("want the error for the first column in sorted order (Alpha), got %v", err)
 		}
+	}
+}
+
+func TestLoadRejectsLiteralToken(t *testing.T) {
+	_, err := Load(write(t, minimal+"  token = \"secret\"\n"))
+	if err == nil || !strings.Contains(err.Error(), "jira.token") {
+		t.Errorf("want unknown-key error naming jira.token, got %v", err)
+	}
+}
+
+func TestResolveTokenEnvUnsetIsAnError(t *testing.T) {
+	t.Setenv("JIRA_API_TOKEN", "fallback")
+	for _, v := range []string{"", "   "} {
+		t.Setenv("JG_UNSET_TOKEN", v)
+		tok, err := ResolveToken(Jira{TokenEnv: "JG_UNSET_TOKEN"})
+		if err == nil || !strings.Contains(err.Error(), `token_env "JG_UNSET_TOKEN" is unset`) {
+			t.Errorf("value %q: want token_env unset error, got token %q, err %v", v, tok, err)
+		}
+	}
+}
+
+func TestResolveTokenCommandTimesOut(t *testing.T) {
+	old := tokenCommandTimeout
+	tokenCommandTimeout = 100 * time.Millisecond
+	t.Cleanup(func() { tokenCommandTimeout = old })
+	start := time.Now()
+	_, err := ResolveToken(Jira{TokenCommand: "sleep 5; echo late"})
+	if err == nil {
+		t.Fatal("want timeout error")
+	}
+	if el := time.Since(start); el > 3*time.Second {
+		t.Errorf("took %v, want it cut off by the timeout", el)
 	}
 }

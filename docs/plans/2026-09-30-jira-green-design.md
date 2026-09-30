@@ -24,7 +24,10 @@ rollups, auto-polling, shipped through the `ericdahl-dev/tap` Homebrew cask.
 
 - Jira Cloud REST API, called directly (no shelling out to go-jira-cli).
 - Auth: email + API token. The token never lives in the config file; the config names an env
-  var (`token_env`) or a command (`token_command`), matching coolify-green.
+  var (`token_env`) or a command (`token_command`), matching coolify-green. A literal `token =`
+  key is rejected as unknown. Resolution order: `token_command` (run with a 10s timeout), then
+  `token_env` (an error if the variable is unset or empty), then `$JIRA_API_TOKEN` only when
+  neither is configured. A configured source that fails is an error, never a fall-through.
 - No site hostnames, board IDs, or project keys are committed to the repo. They live only in the
   user's local config.
 

@@ -3,6 +3,7 @@ package config
 
 import (
 	"bytes"
+	"context"
 	"errors"
 	"fmt"
 	"maps"
@@ -28,7 +29,6 @@ type Settings struct {
 type Jira struct {
 	Site         string `toml:"site"`
 	Email        string `toml:"email,omitempty"`
-	Token        string `toml:"token,omitempty"`
 	TokenEnv     string `toml:"token_env,omitempty"`
 	TokenCommand string `toml:"token_command,omitempty"`
 	BoardID      int    `toml:"board_id,omitempty"`
@@ -275,14 +275,25 @@ func (c *Config) Save() error {
 	return os.Rename(tmp, c.path)
 }
 
-// ResolveToken returns the API token: token_command, then token_env, then the
-// literal token, then $JIRA_API_TOKEN (the variable go-jira-cli also reads).
+// tokenCommandTimeout bounds how long token_command may run.
+var tokenCommandTimeout = 10 * time.Second
+
+// ResolveToken returns the API token: token_command, then token_env, then
+// $JIRA_API_TOKEN (the variable go-jira-cli also reads) only when neither is
+// configured. A configured source that fails is an error, never a fall-through.
+// The config file never holds the token itself.
 func ResolveToken(j Jira) (string, error) {
 	if j.TokenCommand != "" {
-		cmd := exec.Command("sh", "-c", j.TokenCommand)
+		ctx, cancel := context.WithTimeout(context.Background(), tokenCommandTimeout)
+		defer cancel()
+		cmd := exec.CommandContext(ctx, "sh", "-c", j.TokenCommand)
+		cmd.WaitDelay = time.Second // don't wait on a killed shell's children holding stdout
 		var stderr bytes.Buffer
 		cmd.Stderr = &stderr
 		out, err := cmd.Output()
+		if ctx.Err() != nil {
+			return "", fmt.Errorf("token_command timed out after %v", tokenCommandTimeout)
+		}
 		if err != nil {
 			return "", fmt.Errorf("token_command failed: %w: %s", err, strings.TrimSpace(stderr.String()))
 		}
@@ -293,17 +304,16 @@ func ResolveToken(j Jira) (string, error) {
 		return tok, nil
 	}
 	if j.TokenEnv != "" {
-		if tok := strings.TrimSpace(os.Getenv(j.TokenEnv)); tok != "" {
-			return tok, nil
+		tok := strings.TrimSpace(os.Getenv(j.TokenEnv))
+		if tok == "" {
+			return "", fmt.Errorf("token_env %q is unset", j.TokenEnv)
 		}
-	}
-	if tok := strings.TrimSpace(j.Token); tok != "" {
 		return tok, nil
 	}
 	if tok := strings.TrimSpace(os.Getenv("JIRA_API_TOKEN")); tok != "" {
 		return tok, nil
 	}
-	return "", errors.New("no token — set token_command, token_env, token, or JIRA_API_TOKEN")
+	return "", errors.New("no token: set jira.token_command, jira.token_env, or JIRA_API_TOKEN")
 }
 
 // WriteStarter writes a new config for the wizard. It refuses to overwrite.

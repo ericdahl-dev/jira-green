@@ -1008,6 +1008,12 @@ single Jira site.
 > `DefaultView()`, and `Rules(me)`, never the raw fields such as `c.JQL.Mine` or
 > `c.Settings.PollIntervalSeconds`. `blocked_labels` defaults to `["blocked"]` only when the key
 > is absent; `blocked_labels = []` disables label blocking.
+>
+> **Note (code review, token):** There is no literal `token` field, so strict keys reject
+> `token =` as unknown (`unknown key(s): jira.token`). `ResolveToken` tries `token_command`
+> (under `exec.CommandContext` with a 10s timeout), then `token_env` (returns
+> `token_env "X" is unset` when the variable is unset or empty, with no fall-through), then
+> `$JIRA_API_TOKEN` only when neither is configured. The code below predates this.
 
 **Files:**
 - Create: `internal/config/config.go`
@@ -3619,7 +3625,7 @@ it and confirm it passes, then commit `feat(ui): manage screen for muting`.
 Port `../coolify-green/internal/wizard/wizard.go` (Huh forms). Steps:
 1. Site URL (validate that it starts with `https://`).
 2. Email.
-3. Token source: select `command` / `env var` / `literal`. The default is `command`, with the
+3. Token source: select `command` / `env var` (there is no literal token). The default is `command`, with the
    placeholder `security find-generic-password -s jira-green -w`.
 4. Verify: `ResolveToken`, then `jira.New(...).Myself`. On failure, show the error and loop back
    to step 3.
