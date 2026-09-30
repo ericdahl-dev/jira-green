@@ -9,8 +9,15 @@ import (
 	"io"
 	"io/fs"
 	"os"
+	"time"
 
+	"github.com/charmbracelet/bubbles/spinner"
+	tea "github.com/charmbracelet/bubbletea"
+	"github.com/ericdahl-dev/jira-green/internal/alert"
 	"github.com/ericdahl-dev/jira-green/internal/config"
+	"github.com/ericdahl-dev/jira-green/internal/jira"
+	"github.com/ericdahl-dev/jira-green/internal/poller"
+	"github.com/ericdahl-dev/jira-green/internal/ui"
 	"github.com/ericdahl-dev/jira-green/internal/wizard"
 )
 
@@ -23,7 +30,7 @@ const usage = `jira-green — terminal dashboard for Jira ticket flow health
 
 Usage:
   jira-green            launch the dashboard
-  jira-green init       create a starter config
+  jira-green init       create a config (--force replaces one)
   jira-green --version  print the version
   jira-green --help     show this help
 `
@@ -58,12 +65,32 @@ func run(args []string, stdout, stderr io.Writer) int {
 		_, _ = fmt.Fprintf(stderr, "jira-green: %v\n", err)
 		return 1
 	}
-	if _, err := config.ResolveToken(cfg.Jira); err != nil {
+	token, err := config.ResolveToken(cfg.Jira)
+	if err != nil {
 		_, _ = fmt.Fprintf(stderr, "jira-green: %v\n", err)
 		return 1
 	}
-	_, _ = fmt.Fprintln(stderr, "dashboard not implemented yet")
-	return 1
+	if err := runDashboard(cfg, token); err != nil {
+		_, _ = fmt.Fprintf(stderr, "jira-green: %v\n", err)
+		return 1
+	}
+	return 0
+}
+
+// runDashboard polls Jira and runs the TUI until the user quits. Every quit
+// path (ctrl+c, q, an error) cancels the poller through the deferred cancel.
+func runDashboard(cfg *config.Config, token string) error {
+	api := jira.New(cfg.Jira.Site, cfg.Jira.Email, token)
+	p := poller.New(cfg, api)
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	d := alert.New(cfg.Webhooks)
+	a := newApp(deps{
+		ctx: ctx, cancel: cancel, cfg: cfg, api: api,
+		snaps: p.Start(ctx), refresh: p.Refresh, dispatch: d.Dispatch, now: time.Now,
+	})
+	_, err := tea.NewProgram(a, tea.WithAltScreen()).Run()
+	return err
 }
 
 func runInit(args []string, path string, stderr io.Writer) int {
@@ -82,4 +109,137 @@ func runInit(args []string, path string, stderr io.Writer) int {
 		return 1
 	}
 	return 0
+}
+
+// transitionAPI is the part of jira.API the model calls directly.
+type transitionAPI interface {
+	Transitions(ctx context.Context, key string) ([]jira.Transition, error)
+	DoTransition(ctx context.Context, key, transitionID string) error
+}
+
+// deps is everything the model needs from the outside, so tests can pass
+// fakes.
+type deps struct {
+	ctx      context.Context // the poller's; cancel stops it
+	cancel   context.CancelFunc
+	cfg      *config.Config
+	api      transitionAPI
+	snaps    <-chan poller.Snapshot
+	refresh  func() // poller.Refresh
+	dispatch func(context.Context, alert.Event)
+	now      func() time.Time
+}
+
+type screen int
+
+const (
+	screenDashboard screen = iota
+	screenManage
+)
+
+// app is the top-level tea.Model: it routes messages to the current
+// screen and runs everything slow as a tea.Cmd.
+type app struct {
+	deps
+	screen    screen
+	dashboard ui.Dashboard
+	manage    ui.Manage
+	tracker   *alert.Tracker
+	loaded    bool // the first snapshot has arrived
+	spinner   spinner.Model
+}
+
+func newApp(d deps) app {
+	return app{
+		deps:      d,
+		dashboard: ui.NewDashboard(d.cfg.DefaultView(), nil),
+		tracker:   alert.NewTracker(d.cfg.StuckAlertAfter()),
+		spinner:   spinner.New(spinner.WithSpinner(spinner.MiniDot)),
+	}
+}
+
+// waitForSnapshot delivers the poller's next snapshot. When the poller has
+// stopped (a 401, or quit) the channel is closed and it delivers nothing, so
+// the dashboard keeps its last state.
+func waitForSnapshot(ch <-chan poller.Snapshot) tea.Cmd {
+	return func() tea.Msg {
+		snap, ok := <-ch
+		if !ok {
+			return nil
+		}
+		return snap
+	}
+}
+
+func (m app) Init() tea.Cmd { return tea.Batch(waitForSnapshot(m.snaps), m.spinner.Tick) }
+
+func (m app) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
+	if k, ok := msg.(tea.KeyMsg); ok && k.String() == "ctrl+c" {
+		m.cancel()
+		return m, tea.Quit
+	}
+	switch msg := msg.(type) {
+	case tea.WindowSizeMsg:
+		// Both screens take the size, so neither draws at a stale width.
+		var dc, mc tea.Cmd
+		m.dashboard, dc = m.dashboard.Update(msg)
+		m.manage, mc = m.manage.Update(msg)
+		return m, tea.Batch(dc, mc)
+	case ui.OpenManageMsg:
+		m.screen = screenManage
+		m.manage = ui.NewManage(msg.Groups, m.cfg.MutedKeys(), m.cfg.SetMuted).WithSize(msg.Width, msg.Height)
+		return m, nil
+	case ui.BackMsg:
+		m.screen = screenDashboard
+		return m, nil
+	case tea.KeyMsg:
+		if m.screen == screenManage {
+			var cmd tea.Cmd
+			m.manage, cmd = m.manage.Update(msg)
+			return m, cmd
+		}
+	case spinner.TickMsg:
+		if m.loaded {
+			return m, nil // stop ticking
+		}
+		var cmd tea.Cmd
+		m.spinner, cmd = m.spinner.Update(msg)
+		return m, cmd
+	case ui.LoadTransitionsMsg:
+		api, ctx, key := m.api, m.ctx, msg.Key
+		return m, func() tea.Msg {
+			ts, err := api.Transitions(ctx, key)
+			return ui.TransitionsLoadedMsg{Key: key, Transitions: ts, Err: err}
+		}
+	case ui.DoTransitionMsg:
+		api, ctx, key, id := m.api, m.ctx, msg.Key, msg.TransitionID
+		return m, func() tea.Msg {
+			return ui.TransitionResultMsg{Key: key, Err: api.DoTransition(ctx, key, id)}
+		}
+	case ui.RefreshMsg:
+		m.refresh()
+		return m, nil
+	case poller.Snapshot:
+		snap := msg
+		m.loaded = true
+		for _, evt := range m.tracker.ObserveSnapshot(snap.Cards, snap.Err, m.now()) {
+			go m.dispatch(m.ctx, evt)
+		}
+		var cmd tea.Cmd
+		m.dashboard, cmd = m.dashboard.Update(snap)
+		return m, tea.Batch(cmd, waitForSnapshot(m.snaps))
+	}
+	var cmd tea.Cmd
+	m.dashboard, cmd = m.dashboard.Update(msg)
+	return m, cmd
+}
+
+func (m app) View() string {
+	if !m.loaded {
+		return m.spinner.View() + " loading Jira..."
+	}
+	if m.screen == screenManage {
+		return m.manage.View()
+	}
+	return m.dashboard.View()
 }
