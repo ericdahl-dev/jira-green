@@ -584,3 +584,12 @@ func TestListScrollsToCursor(t *testing.T) {
 		t.Errorf("the status line stays:\n%s", strings.Join(ls, "\n"))
 	}
 }
+
+func TestListShowsSnapshotEpicProgress(t *testing.T) {
+	d := ui.NewDashboard("list", noOpen(t))
+	d, _ = d.Update(poller.Snapshot{Columns: fxCols, Cards: fxCards(), At: fxAt,
+		EpicProgress: map[string]model.Progress{"ABC-E-Search": {Done: 2, Total: 5}}})
+	if v := d.View(); !strings.Contains(v, "Mine 1  2/5 done") {
+		t.Errorf("list header shows the snapshot's progress:\n%s", v)
+	}
+}

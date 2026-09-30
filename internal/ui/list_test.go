@@ -176,3 +176,19 @@ func TestListBacklog(t *testing.T) {
 		t.Errorf("last row %q", got)
 	}
 }
+
+func TestListEpicProgress(t *testing.T) {
+	progress := map[string]model.Progress{
+		"ABC-E-Auth":          {Done: 4, Total: 7},
+		"ABC-E-Accessibility": {Done: 0, Total: 0}, // never 0/0
+	}
+	ls := lines(ui.RenderList(model.ByEpic(fxCards()), map[string]bool{}, -1, 80, ui.ListOptions{Progress: progress}))
+	if got := ls[lineWith(ls, "Auth")]; !strings.HasSuffix(got, " Mine 1  Waiting 1  4/7 done") {
+		t.Errorf("Auth header: %q", got)
+	}
+	for _, g := range []string{"Search", "Accessibility", "No epic"} {
+		if got := ls[lineWith(ls, g)]; strings.Contains(got, "done") {
+			t.Errorf("%s has no count to show: %q", g, got)
+		}
+	}
+}

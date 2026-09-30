@@ -39,6 +39,9 @@ type ListOptions struct {
 	// HiddenBacklog is how many Backlog cards the dashboard left out of
 	// groups while Backlog is collapsed. Non-zero adds a hint row at the end.
 	HiddenBacklog int
+	// Progress is done/total child issues by epic key (poller.Snapshot's
+	// EpicProgress). A group with no entry, or no children, shows none.
+	Progress map[string]model.Progress
 }
 
 // RenderList draws the epic tree. sel indexes into ListRows.
@@ -48,7 +51,7 @@ func RenderList(groups []model.EpicGroup, collapsed map[string]bool, sel, width 
 	for i, r := range ListRows(groups, collapsed) {
 		var line string
 		if r.Group != nil {
-			line = groupLine(*r.Group, collapsed[r.Group.Key])
+			line = groupLine(*r.Group, collapsed[r.Group.Key], opt.Progress)
 		} else {
 			line = cardLine(*r.Card, cw, width)
 		}
@@ -65,12 +68,16 @@ func RenderList(groups []model.EpicGroup, collapsed map[string]bool, sel, width 
 	return sb.String()
 }
 
-func groupLine(g model.EpicGroup, collapsed bool) string {
+func groupLine(g model.EpicGroup, collapsed bool, progress map[string]model.Progress) string {
 	arrow := "▼"
 	if collapsed {
 		arrow = "▶"
 	}
-	return fmt.Sprintf("%s %s %s %s", arrow, g.Light.Emoji(), pad(g.Name, 28), laneCounts(g.Cards))
+	line := fmt.Sprintf("%s %s %s %s", arrow, g.Light.Emoji(), pad(g.Name, 28), laneCounts(g.Cards))
+	if p, ok := progress[g.Key]; ok && g.Key != "" && p.Total > 0 {
+		line += fmt.Sprintf("  %d/%d done", p.Done, p.Total)
+	}
+	return line
 }
 
 // laneCounts is "Mine N  Waiting N  Backlog N", leaving out a zero count.

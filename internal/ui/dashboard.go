@@ -393,7 +393,7 @@ func (d Dashboard) View() string {
 			hint := fmt.Sprintf("kanban needs %d cols - showing list", minColWidth*len(d.board.Columns))
 			pinned = []string{dimStyle.Render(truncate(hint, d.width))}
 		}
-		ls = lines(RenderList(d.groups, d.collapsed, d.listSel, d.width, ListOptions{HiddenBacklog: d.hiddenBacklog}))
+		ls = lines(RenderList(d.groups, d.collapsed, d.listSel, d.width, ListOptions{HiddenBacklog: d.hiddenBacklog, Progress: d.snap.EpicProgress}))
 		from, to = d.listSel, d.listSel+1
 	} else {
 		all, cl := kanbanLines(d.board, d.cur, d.width, KanbanOptions{BacklogOpen: d.backlogOpen})
