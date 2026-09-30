@@ -3,6 +3,7 @@ package jira_test
 import (
 	"context"
 	"encoding/json"
+	"fmt"
 	"net/http"
 	"os"
 	"slices"
@@ -127,5 +128,57 @@ func TestSearchMalformedStatusLeavesStatusEmpty(t *testing.T) {
 	}
 	if a := issues[0]; a.StatusID != "" || a.StatusName != "" || len(a.DecodeErrors) != 1 {
 		t.Errorf("status %q/%q decode errors %q", a.StatusID, a.StatusName, a.DecodeErrors)
+	}
+}
+
+const commentJSON = `{"author":{"accountId":%q},"created":"2026-09-2%dT09:00:00.000-0400","body":null}`
+
+func TestSearchFetchesTruncatedComments(t *testing.T) {
+	c := newTest(t, func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path == "/rest/api/3/issue/ABC-7/comment" {
+			if r.Method != http.MethodGet || r.URL.Query().Get("orderBy") != "-created" || r.URL.Query().Get("maxResults") != "100" {
+				t.Errorf("%s %s", r.Method, r.URL)
+			}
+			_, _ = fmt.Fprintf(w, `{"total":3,"comments":[`+commentJSON+`,`+commentJSON+`,`+commentJSON+`]}`,
+				"acct-c", 3, "acct-b", 2, "acct-a", 1)
+			return
+		}
+		_, _ = fmt.Fprintf(w, `{"isLast":true,"issues":[
+			{"key":"ABC-7","fields":{"comment":{"total":3,"comments":[`+commentJSON+`]}}},
+			{"key":"ABC-8","fields":{"comment":{"total":1,"comments":[`+commentJSON+`]}}}]}`,
+			"acct-a", 1, "acct-z", 1)
+	})
+	issues, err := c.Search(context.Background(), "project = ABC", "")
+	if err != nil || len(issues) != 2 {
+		t.Fatalf("%+v %v", issues, err)
+	}
+	var authors []string
+	for _, cm := range issues[0].Comments {
+		authors = append(authors, cm.AuthorID)
+	}
+	if !slices.Equal(authors, []string{"acct-c", "acct-b", "acct-a"}) || len(issues[0].DecodeErrors) != 0 {
+		t.Errorf("authors %v decode errors %q", authors, issues[0].DecodeErrors)
+	}
+	if len(issues[1].Comments) != 1 {
+		t.Errorf("untruncated issue comments %+v", issues[1].Comments)
+	}
+}
+
+func TestSearchTruncatedCommentFetchFailureIsDecodeError(t *testing.T) {
+	c := newTest(t, func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path == "/rest/api/3/issue/ABC-7/comment" {
+			w.WriteHeader(http.StatusInternalServerError)
+			return
+		}
+		_, _ = fmt.Fprintf(w, `{"isLast":true,"issues":[
+			{"key":"ABC-7","fields":{"comment":{"total":3,"comments":[`+commentJSON+`]}}}]}`, "acct-a", 1)
+	})
+	issues, err := c.Search(context.Background(), "project = ABC", "")
+	if err != nil || len(issues) != 1 {
+		t.Fatalf("%+v %v", issues, err)
+	}
+	a := issues[0]
+	if len(a.Comments) != 1 || len(a.DecodeErrors) != 1 || !strings.HasPrefix(a.DecodeErrors[0], "comments: truncated, fetch failed") {
+		t.Errorf("comments %+v decode errors %q", a.Comments, a.DecodeErrors)
 	}
 }
