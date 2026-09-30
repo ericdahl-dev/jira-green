@@ -26,6 +26,9 @@ type Snapshot struct {
 	EpicProgress map[string]model.Progress
 	At           time.Time
 	Err          error
+	// BoardErr is the last board-configuration refresh error, when the poll
+	// fell back on cached columns. The poll itself still succeeded.
+	BoardErr error
 	// Unscoped is set when the board has no usable saved filter, so the
 	// Mine, Backlog, and Done lanes are not limited to this board.
 	Unscoped bool
@@ -50,6 +53,7 @@ type Poller struct {
 	cols       []model.Column
 	filterID   string // the board's saved filter; "" = do not scope
 	colsAt     time.Time
+	boardErr   error // the last refresh's error, while cached columns stand in
 	changelogs map[string]clEntry
 	comments   map[string]cmEntry
 	epics      map[string]epicEntry // by story key
@@ -133,10 +137,16 @@ func (p *Poller) fetch(ctx context.Context, now time.Time) (Snapshot, error) {
 	}
 	if p.cols == nil || now.Sub(p.colsAt) >= p.cfg.BoardRefreshInterval() {
 		bc, err := p.api.BoardConfig(ctx, p.cfg.Jira.BoardID)
-		if err != nil {
+		switch {
+		case err == nil:
+			p.cols, p.filterID, p.colsAt, p.boardErr = bc.Columns, bc.FilterID, now, nil
+		case p.cols == nil || fatal(err):
 			return Snapshot{}, err
+		default:
+			// Keep the cached columns and retry next poll: the board's
+			// layout rarely changes, and the lanes are still worth showing.
+			p.boardErr = err
 		}
-		p.cols, p.filterID, p.colsAt = bc.Columns, bc.FilterID, now
 	}
 	rules, err := p.cfg.Rules(p.me)
 	if err != nil {
@@ -213,7 +223,7 @@ func (p *Poller) fetch(ctx context.Context, now time.Time) (Snapshot, error) {
 	if err != nil {
 		return Snapshot{}, err
 	}
-	return Snapshot{Columns: p.cols, Cards: cards, EpicProgress: progress, At: now, Unscoped: p.filterID == ""}, nil
+	return Snapshot{Columns: p.cols, Cards: cards, EpicProgress: progress, At: now, BoardErr: p.boardErr, Unscoped: p.filterID == ""}, nil
 }
 
 // epicProgress counts done and total child issues for each epic the cards

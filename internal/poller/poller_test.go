@@ -6,6 +6,7 @@ import (
 	"maps"
 	"os"
 	"path/filepath"
+	"reflect"
 	"slices"
 	"strings"
 	"sync"
@@ -29,6 +30,7 @@ type fake struct {
 	commentHits   map[string]int
 	boardCalls    int
 	filterID      string   // BoardConfig's FilterID
+	boardErr      error    // returned by BoardConfig when set
 	searched      []string // every JQL Search received, in order
 	err           error    // returned by Search when set
 	commentErr    error    // returned by Comments when set
@@ -86,6 +88,9 @@ func (f *fake) BoardConfig(context.Context, int) (jira.BoardConfig, error) {
 	f.mu.Lock()
 	defer f.mu.Unlock()
 	f.boardCalls++
+	if f.boardErr != nil {
+		return jira.BoardConfig{}, f.boardErr
+	}
 	return jira.BoardConfig{FilterID: f.filterID, Columns: []model.Column{
 		{Name: "To Do", StatusIDs: []string{"1"}},
 		{Name: "In Progress", StatusIDs: []string{"3"}},
@@ -720,6 +725,42 @@ func TestPollWithoutABoardFilterScopesNothing(t *testing.T) {
 	want := []string{c.MineJQL(), c.WaitingJQL(), c.BacklogJQL(), c.DoneJQL()}
 	if !slices.Equal(f.searched, want) {
 		t.Fatalf("searched %q, want the lane queries unchanged %q", f.searched, want)
+	}
+}
+
+func TestFailedBoardRefreshKeepsCachedColumns(t *testing.T) {
+	c := cfg(t, "")
+	f := newFake()
+	f.byJQL[c.MineJQL()] = []model.Issue{{Key: "ABC-1", StatusID: "3", Created: t0, Updated: t0}}
+	now := t0
+	p := newPoller(c, f, &now)
+	first := p.PollOnce(context.Background())
+
+	now = now.Add(c.BoardRefreshInterval())
+	f.boardErr = errors.New("jira: HTTP 503")
+	snap := p.PollOnce(context.Background())
+	if snap.Err != nil || len(snap.Cards) != 1 || snap.Cards[0].Light == model.Stale {
+		t.Fatalf("a failed board refresh failed the poll: %+v", snap)
+	}
+	if !reflect.DeepEqual(snap.Columns, first.Columns) {
+		t.Errorf("columns %v, want the cached %v", snap.Columns, first.Columns)
+	}
+	if snap.BoardErr == nil {
+		t.Error("the refresh error is not on the snapshot")
+	}
+
+	f.boardErr = nil
+	if snap = p.PollOnce(context.Background()); snap.BoardErr != nil {
+		t.Errorf("the next good refresh keeps BoardErr %v", snap.BoardErr)
+	}
+}
+
+func TestFailedFirstBoardFetchFailsThePoll(t *testing.T) {
+	f := newFake()
+	f.boardErr = errors.New("jira: HTTP 503")
+	now := t0
+	if snap := newPoller(cfg(t, ""), f, &now).PollOnce(context.Background()); snap.Err == nil {
+		t.Error("no columns to fall back on, but the poll succeeded")
 	}
 }
 
