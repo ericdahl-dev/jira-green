@@ -6,6 +6,7 @@ import (
 	"strings"
 
 	tea "github.com/charmbracelet/bubbletea"
+	"github.com/charmbracelet/x/ansi"
 	"github.com/ericdahl-dev/jira-green/internal/jira"
 )
 
@@ -42,14 +43,17 @@ type Picker struct {
 	confirming bool
 	moving     bool // DoTransitionMsg sent, waiting for its result
 	err        error
+	width      int
 }
 
-// NewPicker is a picker for key, waiting for its transitions.
-func NewPicker(key string) Picker { return Picker{key: key, loading: true} }
+// NewPicker is a picker for key, waiting for its transitions, fit to width.
+func NewPicker(key string, width int) Picker { return Picker{key: key, loading: true, width: width} }
 
 // Update handles one message.
 func (p Picker) Update(msg tea.Msg) (Picker, tea.Cmd) {
 	switch msg := msg.(type) {
+	case tea.WindowSizeMsg:
+		p.width = msg.Width
 	case TransitionsLoadedMsg:
 		// Only the first reply counts: after t, esc, t a second reply for
 		// the same key can arrive once the list is in use.
@@ -121,13 +125,17 @@ func (p Picker) View() string {
 		fmt.Fprintf(&sb, "\nmoving %s to %s…\n", p.key, p.items[p.sel].ToName)
 	}
 	for _, m := range errorLines(p.err) {
-		sb.WriteString("\n" + m)
+		sb.WriteString("\n" + ansi.Wrap(m, p.width, ""))
 	}
 	if p.err != nil {
 		sb.WriteString("\n")
 	}
 	sb.WriteString("\n" + dimStyle.Render("↑↓ choose  enter select  esc cancel") + "\n")
-	return sb.String()
+	ls := lines(sb.String())
+	for i := range ls {
+		ls[i] = truncate(ls[i], p.width)
+	}
+	return strings.Join(ls, "\n") + "\n"
 }
 
 // errorLines are Jira's own messages for an APIError that has them (they

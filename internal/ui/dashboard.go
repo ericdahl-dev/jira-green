@@ -95,6 +95,10 @@ func (d Dashboard) Update(msg tea.Msg) (Dashboard, tea.Cmd) {
 	switch msg := msg.(type) {
 	case tea.WindowSizeMsg:
 		d.width, d.height = msg.Width, msg.Height
+		if d.picker != nil {
+			p, _ := d.picker.Update(msg)
+			d.picker = &p
+		}
 	case poller.Snapshot:
 		d.snap = msg
 		d.relayout()
@@ -232,7 +236,7 @@ func (d Dashboard) openPicker(c *model.Card) (Dashboard, tea.Cmd) {
 	if c == nil {
 		return d, nil
 	}
-	p, k := NewPicker(c.Key), c.Key
+	p, k := NewPicker(c.Key, d.width), c.Key
 	d.picker = &p
 	return d, func() tea.Msg { return LoadTransitionsMsg{Key: k} }
 }

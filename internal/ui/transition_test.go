@@ -6,6 +6,7 @@ import (
 	"testing"
 
 	tea "github.com/charmbracelet/bubbletea"
+	"github.com/charmbracelet/lipgloss"
 
 	"github.com/ericdahl-dev/jira-green/internal/jira"
 	"github.com/ericdahl-dev/jira-green/internal/ui"
@@ -17,13 +18,13 @@ var fxTransitions = []jira.Transition{
 }
 
 func loadedPicker() ui.Picker {
-	p := ui.NewPicker("ABC-1")
+	p := ui.NewPicker("ABC-1", 80)
 	p, _ = p.Update(ui.TransitionsLoadedMsg{Key: "ABC-1", Transitions: fxTransitions})
 	return p
 }
 
 func TestPickerConfirmFlow(t *testing.T) {
-	p := ui.NewPicker("ABC-1")
+	p := ui.NewPicker("ABC-1", 80)
 	if v := p.View(); !strings.Contains(v, "loading") {
 		t.Errorf("before the transitions arrive: %q", v)
 	}
@@ -92,7 +93,7 @@ func TestPickerShowsJiraError(t *testing.T) {
 	}
 
 	// A transport error has no Jira messages: show the error itself.
-	p, _ = ui.NewPicker("ABC-1").Update(ui.TransitionsLoadedMsg{Key: "ABC-1", Err: errors.New("dial tcp: connection refused")})
+	p, _ = ui.NewPicker("ABC-1", 80).Update(ui.TransitionsLoadedMsg{Key: "ABC-1", Err: errors.New("dial tcp: connection refused")})
 	if v := p.View(); !strings.Contains(v, "dial tcp: connection refused") || strings.Contains(v, "loading") {
 		t.Errorf("load error: %q", v)
 	}
@@ -131,7 +132,7 @@ func TestPickerSuccessClosesAndRefreshes(t *testing.T) {
 }
 
 func TestPickerIgnoresOtherKeys(t *testing.T) {
-	p, _ := ui.NewPicker("ABC-1").Update(ui.TransitionsLoadedMsg{Key: "ABC-2", Transitions: fxTransitions})
+	p, _ := ui.NewPicker("ABC-1", 80).Update(ui.TransitionsLoadedMsg{Key: "ABC-2", Transitions: fxTransitions})
 	if v := p.View(); !strings.Contains(v, "loading") || strings.Contains(v, "Start review") {
 		t.Errorf("transitions for another issue are dropped: %q", v)
 	}
@@ -143,7 +144,7 @@ func TestPickerIgnoresOtherKeys(t *testing.T) {
 }
 
 func TestPickerNoTransitions(t *testing.T) {
-	p, _ := ui.NewPicker("ABC-1").Update(ui.TransitionsLoadedMsg{Key: "ABC-1"})
+	p, _ := ui.NewPicker("ABC-1", 80).Update(ui.TransitionsLoadedMsg{Key: "ABC-1"})
 	if v := p.View(); !strings.Contains(v, "no transitions available") {
 		t.Errorf("view %q", v)
 	}
@@ -170,4 +171,22 @@ func pressPicker(p ui.Picker, keys ...string) ui.Picker {
 		p, _ = p.Update(key(k))
 	}
 	return p
+}
+
+func TestPickerFitsWidth(t *testing.T) {
+	long := []jira.Transition{{ID: "41", Name: "Send back to the product owner for another look", ToName: "Needs Clarification From Product"}}
+	p := ui.NewPicker("ABC-1", 30)
+	p, _ = p.Update(ui.TransitionsLoadedMsg{Key: "ABC-1", Transitions: long})
+	p = pressPicker(p, "enter", "y")
+	p, _ = p.Update(ui.TransitionResultMsg{Key: "ABC-1", Err: &jira.APIError{Status: 400,
+		Messages: []string{"resolution: Field 'resolution' is required when moving to Needs Clarification From Product"}}})
+	v := p.View()
+	for i, l := range lines(v) {
+		if lipgloss.Width(l) > 30 {
+			t.Errorf("line %d is %d wide: %q", i, lipgloss.Width(l), l)
+		}
+	}
+	if !strings.Contains(strings.ReplaceAll(v, "\n", " "), "is required when moving") {
+		t.Errorf("Jira's message wraps rather than being cut:\n%s", v)
+	}
 }
