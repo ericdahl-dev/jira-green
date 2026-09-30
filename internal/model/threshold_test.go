@@ -1,8 +1,10 @@
-package model
+package model_test
 
 import (
 	"testing"
 	"time"
+
+	"github.com/ericdahl-dev/jira-green/internal/model"
 )
 
 func TestParseAge(t *testing.T) {
@@ -14,13 +16,13 @@ func TestParseAge(t *testing.T) {
 		"1d6h": 30 * time.Hour,
 	}
 	for in, want := range ok {
-		got, err := ParseAge(in)
+		got, err := model.ParseAge(in)
 		if err != nil || got != want {
 			t.Errorf("ParseAge(%q) = %v, %v; want %v", in, got, err, want)
 		}
 	}
-	for _, bad := range []string{"", "d", "3x", "-1d", "-1h", "0d"} {
-		if _, err := ParseAge(bad); err == nil {
+	for _, bad := range []string{"", "d", "3x", "-1d", "-1h", "0d", "0h", "0", "0d0h"} {
+		if _, err := model.ParseAge(bad); err == nil {
 			t.Errorf("ParseAge(%q) should fail", bad)
 		}
 	}
@@ -34,7 +36,7 @@ func TestFormatAge(t *testing.T) {
 		6 * 24 * time.Hour: "6d",
 	}
 	for in, want := range cases {
-		if got := FormatAge(in); got != want {
+		if got := model.FormatAge(in); got != want {
 			t.Errorf("FormatAge(%v) = %q, want %q", in, got, want)
 		}
 	}

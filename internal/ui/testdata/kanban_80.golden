@@ -1,0 +1,13 @@
+ To Do              In Progress        Code Review        UA
+─ 🔴 Mine (4) ──────────────────────────────────────────────────────────────────
+ 🟢 ABC-2011        🟡 ABC-1974       >🔴 ABC-1836
+  Add alt text t..   Fix auth redir..   Solr paginatio..
+  1d                 4d                 6d ⚑
+ 🟢 ABC-2020
+  Update footer ..
+  0m
+─ 🟡 Waiting on others (2) ─────────────────────────────────────────────────────
+                    🟡 ABC-1990                           🟢 ABC-1950
+                     Harden session..                      Verify catalog..
+                     @jane 3d                              @qa 1d
+─ 🟡 ▶ Backlog (2) ───────────────────────────────────────────────── b to expand

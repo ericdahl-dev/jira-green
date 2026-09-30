@@ -994,6 +994,27 @@ Port the structure from `../coolify-green/internal/config/config.go`, keeping `L
 `applyDefaultsAndValidate`, `Save`, `ResolveToken`, and `WriteStarter`. The schema changes to a
 single Jira site.
 
+> **Note (decided after implementation):** Threshold defaults merge per column. The defaults
+> always apply, a user `[thresholds.X]` table replaces only column X, and a table with neither
+> `yellow` nor `red` disables that column. `Load` also rejects unknown keys through
+> `md.Undecoded()` (for example `unknown key(s): jira.token_cmd`), which catches typos and a
+> top-level key such as `muted` written below the `[jira]` table.
+>
+> **Note (code review):** The config keeps only what the user wrote. `validate()` checks values
+> and writes nothing back (except trimming a trailing slash from `jira.site`), and `Save` omits
+> absent keys, so no default is ever frozen into the file. Defaults are resolved when read, so
+> callers (the poller, main, the UI) must use the accessors `MineJQL()`, `WaitingJQL()`,
+> `DoneJQL()`, `PollInterval()`, `BoardRefreshInterval()`, `StuckAlertAfter()`,
+> `DefaultView()`, and `Rules(me)`, never the raw fields such as `c.JQL.Mine` or
+> `c.Settings.PollIntervalSeconds`. `blocked_labels` defaults to `["blocked"]` only when the key
+> is absent; `blocked_labels = []` disables label blocking.
+>
+> **Note (code review, token):** There is no literal `token` field, so strict keys reject
+> `token =` as unknown (`unknown key(s): jira.token`). `ResolveToken` tries `token_command`
+> (under `exec.CommandContext` with a 10s timeout), then `token_env` (returns
+> `token_env "X" is unset` when the variable is unset or empty, with no fall-through), then
+> `$JIRA_API_TOKEN` only when neither is configured. The code below predates this.
+
 **Files:**
 - Create: `internal/config/config.go`
 - Test: `internal/config/config_test.go`
@@ -1483,7 +1504,7 @@ func (e *APIError) Error() string {
 	return fmt.Sprintf("jira: HTTP %d: %s", e.Status, e.Body)
 }
 
-// IsAuth reports whether err is a 401/403 — polling should stop, not retry.
+// IsAuth reports whether err is a 401 — polling should stop, not retry. A 403 does not stop polling.
 func IsAuth(err error) bool {
 	var ae *APIError
 	return errors.As(err, &ae) && (ae.Status == 401 || ae.Status == 403)
@@ -1593,6 +1614,9 @@ func (c *Client) Myself(ctx context.Context) (User, error) {
 ---
 
 ### Task 9: Jira client: search and issue conversion
+
+> **Superseded in part.** Search embeds only the first page of comments; the poller fetches the
+> newest ones. See "Post-plan decisions" (Comment paging). The code below is the original design.
 
 **Files:**
 - Create: `internal/jira/search.go`, `internal/jira/adf.go`
@@ -2176,6 +2200,9 @@ var _ API = (*Client)(nil)
 ---
 
 ### Task 11: Poller
+
+> **Superseded in part.** `Start` returns only the snapshot channel; refresh is the `Refresh`
+> method. See "Post-plan decisions" (Poller refresh). The code below is the original design.
 
 The poller produces immutable `Snapshot`s on a channel, following coolify-green's poller
 (`../coolify-green/internal/poller/poller.go`). Read that file first; keep the same
@@ -3604,7 +3631,7 @@ it and confirm it passes, then commit `feat(ui): manage screen for muting`.
 Port `../coolify-green/internal/wizard/wizard.go` (Huh forms). Steps:
 1. Site URL (validate that it starts with `https://`).
 2. Email.
-3. Token source: select `command` / `env var` / `literal`. The default is `command`, with the
+3. Token source: select `command` / `env var` (there is no literal token). The default is `command`, with the
    placeholder `security find-generic-password -s jira-green -w`.
 4. Verify: `ResolveToken`, then `jira.New(...).Myself`. On failure, show the error and loop back
    to step 3.
@@ -3635,13 +3662,19 @@ confirm it fails, implement, and run it again to confirm it passes. Commit
 Follow `../coolify-green/main.go`'s top-level `model`: a screen enum (dashboard / manage), a
 `waitForSnapshot` loop, and a spinner while the first poll runs.
 
-- `run`: `init [--force]` → wizard. Otherwise load `config.DefaultPath()`. If the file is
-  missing, print `no config — run: jira-green init` and exit 1.
+- `run`: `init [--force]` → wizard. Otherwise load `config.DefaultPath()` (it returns
+  `(string, error)`; exit 1 on the error). If the file is missing, print `no config — run: jira-green init` and exit 1.
 - Build `jira.New(site, email, token)`, `poller.New(cfg, api)`, and
   `alert.New(cfg.Webhooks)` + `alert.NewTracker(stuckAfter)`.
-- On each `poller.Snapshot`: pass it to the dashboard, call `tracker.Observe`, then dispatch the
-  events.
-- `RefreshMsg` → non-blocking send on the poller's refresh channel.
+- On each `poller.Snapshot`: pass it to the dashboard, call
+  `tracker.ObserveSnapshot(snap.Cards, snap.Err, time.Now())`, then dispatch the events with
+  `dispatcher.Dispatch(ctx, evt)`.
+  - **Stuck alerts pause while stale** (user decision): a failed poll (`snap.Err != nil`) carries
+    only the last good cards re-marked stale, so `ObserveSnapshot` ignores it. A stale snapshot
+    neither advances an incident toward firing nor resets one; alerts resume on the next good
+    poll. Do not call `tracker.Observe` directly from main.
+- `RefreshMsg` → `poller.Refresh()`. `Start(ctx)` returns only the snapshot channel; `Refresh`
+  never blocks, even after `Start` has stopped on a 401, so the UI must not send on a raw channel.
 - `LoadTransitionsMsg` / `DoTransitionMsg` → run the API call in a `tea.Cmd`, and reply with
   `TransitionsLoadedMsg` / `TransitionResultMsg`.
 - `m` → manage screen. `q` / `ctrl+c` → quit. `?` → help overlay.
@@ -3689,6 +3722,7 @@ Check:
 
 **Steps:**
 1. Write the README and CONTEXT.md. The screenshot must use `ABC-` keys only.
+   README must note: mute/unmute rewrites config.toml and drops # comments.
 2. `golangci-lint run` → fix everything it flags.
 3. `go test -race ./...` → PASS.
 4. Commit: `docs: README and CONTEXT`.
@@ -3697,6 +3731,58 @@ Check:
    release workflow went green and that `brew install --cask ericdahl-dev/tap/jira-green` works.
 
 ---
+
+## Post-plan decisions
+
+Decisions made after this plan was written. The code is authoritative; this records why.
+
+- **Board scoping.** `jira.API.BoardColumns` became `BoardConfig`, returning
+  `jira.BoardConfig{Columns, FilterID}` from the one configuration request. The poller ANDs
+  `filter = ID` onto the Mine, Backlog, and Done queries, including a `[jql]` override;
+  Waiting stays global. A missing or non-numeric filter ID scopes nothing, and
+  `Snapshot.Unscoped` puts a dim `unscoped` tag on the status line. A failed board-config
+  refresh keeps the cached columns and filter (the error rides on `Snapshot.BoardErr`); only
+  the first fetch, or a fatal error, fails the poll.
+- **Subtask rollup.** `model.Issue` gained `ParentKey`/`ParentSummary` (set only for subtasks)
+  and `DisplaySummary()`. `jira.API` gained `ParentOf(key) (Parent, error)`. For a subtask the
+  jira layer sets the story as the epic; the poller replaces it with the story's epic (cached
+  per story, TTL `BoardRefreshInterval`, failures not cached, pruned when no subtask references
+  the story). Fatal-vs-degrade matches changelog and comments.
+- **Epic progress.** `jira.API` gained `Count(jql) (int, error)` over
+  `search/approximate-count`. The poller fills `Snapshot.EpicProgress map[string]model.Progress`
+  (`{Done, Total}`), cached per epic for `BoardRefreshInterval`. It lives on the snapshot, not on
+  `model.EpicGroup`, so `ByEpic` stays a pure function of the cards and its signature does not
+  change; the list renderer looks progress up by `group.Key`. A non-fatal count error means no
+  entry (never 0/0), and is retried next poll. A stale snapshot keeps the last progress.
+- **Backlog lane.** `model.LaneBacklog` sits between Waiting and Done (so `LaneDone` is now 3;
+  compare lanes by name, never by number). `config.BacklogJQL()` defaults to
+  `DefaultBacklogJQL`, overridable as `[jql] backlog`. The poller runs it scoped like Mine and
+  Done; dedupe order is Mine → Waiting → Backlog → Done. To bound the first poll (~84 backlog
+  issues for the real user), a Backlog card in a column with no threshold skips the changelog
+  and uses `Created` as `StatusSince`; it cannot change the light there. Cards in thresholded
+  columns still fetch it, so an aging Code Review backlog ticket goes yellow/red.
+- **Comment paging (Task 9).** Search still asks for the `comment` field, but Jira embeds only
+  the first page. The jira layer sets `model.Issue.CommentsTruncated` when that page is short of
+  the total, and `jira.API` gained `Comments(key)` (newest 100, newest first). The poller calls
+  it only for truncated issues, cached per issue until `Updated` changes. A non-fatal failure
+  keeps the first page and adds a decode error, so the card shows Incomplete.
+- **Poller refresh (Task 11).** `Start(ctx) <-chan Snapshot` returns only the snapshot channel.
+  A forced poll is `Poller.Refresh()`, which never blocks: a pending request absorbs a second
+  one, and a call after Start has stopped does nothing. The channel closes on ctx done or a 401.
+- **Incomplete data (Tasks 5, 12).** `model.Evaluate` no longer adds a "data incomplete" reason;
+  it sets `Card.Incomplete` and leaves the errors in `DecodeErrors`. `alert.Event` carries both
+  as `incomplete` and `decode_errors` (omitted when empty).
+- **Final-review fixes.** Only `LaneDone` cards are hidden with Done off; an open card in the
+  board's last column stays, and that column's header shows whenever it holds one. The list's
+  collapsed Backlog row shows its worst light. The Waiting default adds `OR assignee IS EMPTY`.
+  `Dispatch` returns an error naming each failed webhook by host only; main flashes it on the
+  status line. The last `v` view is remembered in `state.toml` beside `config.toml` and
+  overrides `default_view`; `config.toml` is never rewritten for it. Windows is not a release
+  target.
+- **Known limits.** The stuck clock starts when the app first sees a card red, not when the
+  card turned red in Jira: a card red for days fires `stuck_alert_after` after launch. Webhook
+  HMAC signs the body only, with no timestamp or nonce, so a captured request can be replayed;
+  a receiver that cares should dedupe on `key` + `at`.
 
 ## Out of scope for v1
 

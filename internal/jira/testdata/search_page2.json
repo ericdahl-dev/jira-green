@@ -1,0 +1,18 @@
+{
+  "issues": [
+    {
+      "key": "ABC-2",
+      "fields": {
+        "summary": "Solr pagination",
+        "status": {"id": "10", "name": "Code Review"},
+        "assignee": null,
+        "labels": [],
+        "customfield_10021": null,
+        "created": "2026-09-21T09:00:00.000-0400",
+        "updated": "2026-09-21T09:00:00.000-0400",
+        "comment": {"comments": []}
+      }
+    }
+  ],
+  "isLast": true
+}

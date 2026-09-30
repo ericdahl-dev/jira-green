@@ -8,6 +8,9 @@ import (
 // UnansweredMention reports whether someone else @-mentioned me after my
 // latest comment on the issue.
 func UnansweredMention(me string, comments []Comment) bool {
+	if me == "" {
+		return false
+	}
 	var lastMention, lastMine time.Time
 	for _, c := range comments {
 		if c.AuthorID == me {

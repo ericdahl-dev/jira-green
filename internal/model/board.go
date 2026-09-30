@@ -5,9 +5,10 @@ import (
 	"sort"
 )
 
+// Names for the synthetic board column and list-view group.
 const (
-	OtherColumn = "Other"
-	NoEpic      = "No epic"
+	OtherColumn = "Other"   // column for statuses not mapped to any board column
+	NoEpic      = "No epic" // list-view group for cards without an epic
 )
 
 // Column is a board column and the status IDs mapped to it.
@@ -37,6 +38,7 @@ type Board struct {
 	cells   map[cellKey][]Card
 }
 
+// Cell returns the cards in one lane and column, worst first.
 func (b Board) Cell(l Lane, column string) []Card { return b.cells[cellKey{l, column}] }
 
 // LaneLight is the worst card in a lane.
@@ -64,25 +66,37 @@ func (b Board) LaneCount(l Lane) int {
 	return n
 }
 
-// Layout places cards into cells. The last board column is treated as Done
-// and hidden unless showDone. OtherColumn is appended only when used.
+// Layout places cards into cells. Unless showDone, LaneDone cards are
+// dropped, so lane lights and counts reflect only what is visible, and the
+// last board column (Done, by convention) is shown only when a visible card
+// sits in it: an open card in a column such as "UA" or "Ready for Release"
+// keeps its place. A card whose column is not a board column goes to
+// OtherColumn, which is appended only when used.
 func Layout(cols []Column, cards []Card, showDone bool) Board {
 	b := Board{cells: map[cellKey][]Card{}}
+	known := map[string]bool{}
+	for _, c := range cols {
+		known[c.Name] = true
+	}
+	used := map[string]bool{}
+	for _, c := range cards {
+		if !showDone && c.Lane == LaneDone {
+			continue
+		}
+		if !known[c.Column] {
+			c.Column = OtherColumn
+		}
+		used[c.Column] = true
+		k := cellKey{c.Lane, c.Column}
+		b.cells[k] = append(b.cells[k], c)
+	}
 	for i, c := range cols {
-		if i == len(cols)-1 && !showDone {
+		if i == len(cols)-1 && !showDone && !used[c.Name] {
 			continue
 		}
 		b.Columns = append(b.Columns, c.Name)
 	}
-	usedOther := false
-	for _, c := range cards {
-		if c.Column == OtherColumn {
-			usedOther = true
-		}
-		k := cellKey{c.Lane, c.Column}
-		b.cells[k] = append(b.cells[k], c)
-	}
-	if usedOther {
+	if used[OtherColumn] {
 		b.Columns = append(b.Columns, OtherColumn)
 	}
 	for k := range b.cells {
@@ -100,6 +114,12 @@ func sortCards(cs []Card) {
 	})
 }
 
+// Progress is an epic's child issues: Done of Total are in the Done status
+// category.
+type Progress struct {
+	Done, Total int
+}
+
 // EpicGroup is one row group in the list view.
 type EpicGroup struct {
 	Key   string
@@ -109,14 +129,17 @@ type EpicGroup struct {
 }
 
 // ByEpic groups cards by epic, worst group first, then by name. Cards with
-// no epic go last in NoEpic.
+// no epic go last in NoEpic. An epic with no summary is named by its key.
 func ByEpic(cards []Card) []EpicGroup {
 	idx := map[string]int{}
 	var gs []EpicGroup
 	for _, c := range cards {
 		key, name := c.EpicKey, c.EpicSummary
-		if key == "" {
-			key, name = "", NoEpic
+		switch {
+		case key == "":
+			name = NoEpic
+		case name == "":
+			name = key
 		}
 		i, ok := idx[key]
 		if !ok {

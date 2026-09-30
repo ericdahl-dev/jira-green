@@ -1,0 +1,21 @@
+🔴 ABC-1836  Code Review
+
+Solr pagination breaks on page 11 when the result set has more than ten thousand
+hits
+
+Status    In Review
+Epic      Search
+Age       6d ⚑
+Assignee  Me
+Comments  3 comments, latest by acct-jsmith on 2026-09-28
+
+Why
+  • flagged
+  • in Code Review 6d (red at 2d)
+
+Data incomplete
+  • changelog: jira: HTTP 500 Internal Server Error
+
+https://example.atlassian.net/browse/ABC-1836
+
+esc back  t transition  o open
