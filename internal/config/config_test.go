@@ -151,13 +151,21 @@ func TestSaveKeepsWebhooks(t *testing.T) {
 
 func TestDefaultPath(t *testing.T) {
 	t.Setenv("XDG_CONFIG_HOME", "/xdg")
-	if p := DefaultPath(); p != filepath.Join("/xdg", "jira-green", "config.toml") {
-		t.Errorf("xdg path %q", p)
+	if p, err := DefaultPath(); err != nil || p != filepath.Join("/xdg", "jira-green", "config.toml") {
+		t.Errorf("xdg path %q, %v", p, err)
 	}
 	t.Setenv("XDG_CONFIG_HOME", "")
 	t.Setenv("HOME", "/home/u")
-	if p := DefaultPath(); p != filepath.Join("/home/u", ".config", "jira-green", "config.toml") {
-		t.Errorf("home path %q", p)
+	if p, err := DefaultPath(); err != nil || p != filepath.Join("/home/u", ".config", "jira-green", "config.toml") {
+		t.Errorf("home path %q, %v", p, err)
+	}
+}
+
+func TestDefaultPathNoHome(t *testing.T) {
+	t.Setenv("XDG_CONFIG_HOME", "")
+	t.Setenv("HOME", "")
+	if p, err := DefaultPath(); err == nil {
+		t.Errorf("want error with no home directory, got %q", p)
 	}
 }
 

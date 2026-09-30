@@ -78,14 +78,19 @@ func defaultThresholds() map[string]Age {
 	}
 }
 
-// DefaultPath is ~/.config/jira-green/config.toml (XDG_CONFIG_HOME honored).
-func DefaultPath() string {
+// DefaultPath is $XDG_CONFIG_HOME/jira-green/config.toml, or
+// ~/.config/jira-green/config.toml when XDG_CONFIG_HOME is unset. It returns
+// an error when neither is available rather than guessing a relative path.
+func DefaultPath() (string, error) {
 	base := os.Getenv("XDG_CONFIG_HOME")
 	if base == "" {
-		home, _ := os.UserHomeDir()
+		home, err := os.UserHomeDir()
+		if err != nil {
+			return "", fmt.Errorf("find config path: %w", err)
+		}
 		base = filepath.Join(home, ".config")
 	}
-	return filepath.Join(base, "jira-green", "config.toml")
+	return filepath.Join(base, "jira-green", "config.toml"), nil
 }
 
 func Load(path string) (*Config, error) {

@@ -3656,8 +3656,8 @@ confirm it fails, implement, and run it again to confirm it passes. Commit
 Follow `../coolify-green/main.go`'s top-level `model`: a screen enum (dashboard / manage), a
 `waitForSnapshot` loop, and a spinner while the first poll runs.
 
-- `run`: `init [--force]` → wizard. Otherwise load `config.DefaultPath()`. If the file is
-  missing, print `no config — run: jira-green init` and exit 1.
+- `run`: `init [--force]` → wizard. Otherwise load `config.DefaultPath()` (it returns
+  `(string, error)`; exit 1 on the error). If the file is missing, print `no config — run: jira-green init` and exit 1.
 - Build `jira.New(site, email, token)`, `poller.New(cfg, api)`, and
   `alert.New(cfg.Webhooks)` + `alert.NewTracker(stuckAfter)`.
 - On each `poller.Snapshot`: pass it to the dashboard, call `tracker.Observe`, then dispatch the
