@@ -199,3 +199,13 @@ func TestPickerClearsErrorOnNewConfirm(t *testing.T) {
 		t.Errorf("the old error goes when a new confirmation starts:\n%s", v)
 	}
 }
+
+func TestPickerSaysEscIsOffWhileMoving(t *testing.T) {
+	p := pressPicker(loadedPicker(), "enter", "y")
+	if v := p.View(); !strings.Contains(v, "esc disabled while moving") || strings.Contains(v, "esc cancel") {
+		t.Errorf("moving:\n%s", v)
+	}
+	if v := loadedPicker().View(); strings.Contains(v, "disabled") {
+		t.Errorf("not moving:\n%s", v)
+	}
+}

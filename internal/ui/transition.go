@@ -132,7 +132,11 @@ func (p Picker) View() string {
 	if p.err != nil {
 		sb.WriteString("\n")
 	}
-	sb.WriteString("\n" + dimStyle.Render("↑↓ choose  enter select  esc cancel") + "\n")
+	hint := "↑↓ choose  enter select  esc cancel"
+	if p.moving {
+		hint = "esc disabled while moving"
+	}
+	sb.WriteString("\n" + dimStyle.Render(hint) + "\n")
 	ls := lines(sb.String())
 	for i := range ls {
 		ls[i] = truncate(ls[i], p.width)
