@@ -70,12 +70,12 @@ func TestLayoutShowDone(t *testing.T) {
 }
 
 func TestLayoutHiddenDoneNotCounted(t *testing.T) {
-	cards := []model.Card{{Issue: model.Issue{Key: "ABC-1"}, Column: "Done", Lane: model.LaneMine, Light: model.Red}}
+	cards := []model.Card{{Issue: model.Issue{Key: "ABC-1"}, Column: "Done", Lane: model.LaneDone, Light: model.Red}}
 	b := model.Layout(cols, cards, false)
-	if b.LaneLight(model.LaneMine) != model.Green || b.LaneCount(model.LaneMine) != 0 {
-		t.Errorf("mine lane %v %d, want green 0 with Done hidden", b.LaneLight(model.LaneMine), b.LaneCount(model.LaneMine))
+	if b.LaneLight(model.LaneDone) != model.Green || b.LaneCount(model.LaneDone) != 0 {
+		t.Errorf("done lane %v %d, want green 0 with Done hidden", b.LaneLight(model.LaneDone), b.LaneCount(model.LaneDone))
 	}
-	if len(b.Cell(model.LaneMine, "Done")) != 0 {
+	if len(b.Cell(model.LaneDone, "Done")) != 0 {
 		t.Errorf("hidden done cell still holds %v", b.Cell(model.LaneMine, "Done"))
 	}
 }
@@ -136,5 +136,25 @@ func TestLayoutIncludesTheBacklogLane(t *testing.T) {
 	}
 	if b.LaneCount(model.LaneBacklog) != 2 || b.LaneLight(model.LaneBacklog) != model.Yellow {
 		t.Errorf("backlog count %d light %v, want 2 yellow", b.LaneCount(model.LaneBacklog), b.LaneLight(model.LaneBacklog))
+	}
+}
+
+func TestLayoutLastColumnKeepsOpenCards(t *testing.T) {
+	cards := []model.Card{
+		{Issue: model.Issue{Key: "ABC-1"}, Column: "Done", Lane: model.LaneMine, Light: model.Red},
+		{Issue: model.Issue{Key: "ABC-2"}, Column: "Done", Lane: model.LaneDone, Light: model.Green},
+	}
+	b := model.Layout(cols, cards, false)
+	if got := b.Cell(model.LaneMine, "Done"); len(got) != 1 || got[0].Key != "ABC-1" {
+		t.Errorf("mine card in last column dropped: %v", got)
+	}
+	if b.LaneLight(model.LaneMine) != model.Red || b.LaneCount(model.LaneMine) != 1 {
+		t.Errorf("mine lane %v %d, want red 1", b.LaneLight(model.LaneMine), b.LaneCount(model.LaneMine))
+	}
+	if len(b.Cell(model.LaneDone, "Done")) != 0 {
+		t.Errorf("done-lane card shown with showDone off")
+	}
+	if b.Columns[len(b.Columns)-1] != "Done" {
+		t.Errorf("columns %v, want last column shown when it holds a visible card", b.Columns)
 	}
 }
