@@ -999,6 +999,15 @@ single Jira site.
 > `yellow` nor `red` disables that column. `Load` also rejects unknown keys through
 > `md.Undecoded()` (for example `unknown key(s): jira.token_cmd`), which catches typos and a
 > top-level key such as `muted` written below the `[jira]` table.
+>
+> **Note (code review):** The config keeps only what the user wrote. `validate()` checks values
+> and writes nothing back (except trimming a trailing slash from `jira.site`), and `Save` omits
+> absent keys, so no default is ever frozen into the file. Defaults are resolved when read, so
+> callers (the poller, main, the UI) must use the accessors `MineJQL()`, `WaitingJQL()`,
+> `DoneJQL()`, `PollInterval()`, `BoardRefreshInterval()`, `StuckAlertAfter()`,
+> `DefaultView()`, and `Rules(me)`, never the raw fields such as `c.JQL.Mine` or
+> `c.Settings.PollIntervalSeconds`. `blocked_labels` defaults to `["blocked"]` only when the key
+> is absent; `blocked_labels = []` disables label blocking.
 
 **Files:**
 - Create: `internal/config/config.go`

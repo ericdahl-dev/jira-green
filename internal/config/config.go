@@ -10,32 +10,33 @@ import (
 	"path/filepath"
 	"slices"
 	"strings"
+	"time"
 
 	"github.com/BurntSushi/toml"
 	"github.com/ericdahl-dev/jira-green/internal/model"
 )
 
 type Settings struct {
-	PollIntervalSeconds         int    `toml:"poll_interval_seconds"`
-	BoardRefreshIntervalSeconds int    `toml:"board_refresh_interval_seconds"`
-	StuckAlertAfter             string `toml:"stuck_alert_after"`
-	DefaultView                 string `toml:"default_view"` // "kanban" | "list"
+	PollIntervalSeconds         int    `toml:"poll_interval_seconds,omitempty"`
+	BoardRefreshIntervalSeconds int    `toml:"board_refresh_interval_seconds,omitempty"`
+	StuckAlertAfter             string `toml:"stuck_alert_after,omitempty"`
+	DefaultView                 string `toml:"default_view,omitempty"` // "kanban" | "list"
 }
 
 type Jira struct {
 	Site         string `toml:"site"`
-	Email        string `toml:"email"`
+	Email        string `toml:"email,omitempty"`
 	Token        string `toml:"token,omitempty"`
 	TokenEnv     string `toml:"token_env,omitempty"`
 	TokenCommand string `toml:"token_command,omitempty"`
-	BoardID      int    `toml:"board_id"`
+	BoardID      int    `toml:"board_id,omitempty"`
 	FlaggedField string `toml:"flagged_field,omitempty"` // e.g. customfield_10021; found by init
 }
 
 type JQL struct {
-	Mine    string `toml:"mine"`
-	Waiting string `toml:"waiting"`
-	Done    string `toml:"done"`
+	Mine    string `toml:"mine,omitempty"`
+	Waiting string `toml:"waiting,omitempty"`
+	Done    string `toml:"done,omitempty"`
 }
 
 type Age struct {
@@ -49,13 +50,13 @@ type Webhook struct {
 }
 
 type Config struct {
-	Settings      Settings       `toml:"settings"`
+	Settings      Settings       `toml:"settings,omitempty"`
 	Jira          Jira           `toml:"jira"`
-	JQL           JQL            `toml:"jql"`
-	Thresholds    map[string]Age `toml:"thresholds"`
-	BlockedLabels []string       `toml:"blocked_labels"`
-	Muted         []string       `toml:"muted"` // issue or epic keys
-	Webhooks      []Webhook      `toml:"webhooks"`
+	JQL           JQL            `toml:"jql,omitempty"`
+	Thresholds    map[string]Age `toml:"thresholds,omitempty"`
+	BlockedLabels []string       `toml:"blocked_labels"` // nil = default; [] = none
+	Muted         []string       `toml:"muted,omitempty"` // issue or epic keys
+	Webhooks      []Webhook      `toml:"webhooks,omitempty"`
 
 	path string
 }
@@ -98,31 +99,23 @@ func Load(path string) (*Config, error) {
 		return nil, fmt.Errorf("%s: unknown key(s): %s", path, strings.Join(keys, ", "))
 	}
 	c.path = path
-	if err := c.applyDefaultsAndValidate(); err != nil {
+	if err := c.validate(); err != nil {
 		return nil, fmt.Errorf("%s: %w", path, err)
 	}
 	return &c, nil
 }
 
-func (c *Config) applyDefaultsAndValidate() error {
-	s := &c.Settings
-	if s.PollIntervalSeconds <= 0 {
-		s.PollIntervalSeconds = 60
+// validate checks the values the user wrote. It writes nothing back except
+// normalising jira.site, so Save persists only what the user wrote; defaults
+// are resolved by the accessors.
+func (c *Config) validate() error {
+	if v := c.DefaultView(); v != "kanban" && v != "list" {
+		return fmt.Errorf("settings.default_view must be kanban or list, got %q", v)
 	}
-	if s.BoardRefreshIntervalSeconds <= 0 {
-		s.BoardRefreshIntervalSeconds = 600
-	}
-	if s.StuckAlertAfter == "" {
-		s.StuckAlertAfter = "2h"
-	}
-	if s.DefaultView == "" {
-		s.DefaultView = "kanban"
-	}
-	if s.DefaultView != "kanban" && s.DefaultView != "list" {
-		return fmt.Errorf("settings.default_view must be kanban or list, got %q", s.DefaultView)
-	}
-	if _, err := model.ParseAge(s.StuckAlertAfter); err != nil {
-		return fmt.Errorf("settings.stuck_alert_after: %w", err)
+	if c.Settings.StuckAlertAfter != "" {
+		if _, err := model.ParseAge(c.Settings.StuckAlertAfter); err != nil {
+			return fmt.Errorf("settings.stuck_alert_after: %w", err)
+		}
 	}
 	if strings.TrimSpace(c.Jira.Site) == "" {
 		return errors.New("jira.site is required")
@@ -131,33 +124,72 @@ func (c *Config) applyDefaultsAndValidate() error {
 	if c.Jira.BoardID <= 0 {
 		return errors.New("jira.board_id is required")
 	}
-	if c.JQL.Mine == "" {
-		c.JQL.Mine = DefaultMineJQL
-	}
-	if c.JQL.Waiting == "" {
-		c.JQL.Waiting = DefaultWaitingJQL
-	}
-	if c.JQL.Done == "" {
-		c.JQL.Done = DefaultDoneJQL
-	}
-	// Defaults apply per column; a user entry replaces only its own column,
-	// and an entry with neither yellow nor red disables that column.
-	merged := defaultThresholds()
-	for col, a := range c.Thresholds {
-		merged[col] = a
-	}
-	c.Thresholds = merged
-	if c.BlockedLabels == nil {
-		c.BlockedLabels = []string{"blocked"}
-	}
 	_, err := c.Rules("")
 	return err
 }
 
-// Rules builds the health rules for the given account ID.
+// MineJQL is the query for the Mine lane.
+func (c *Config) MineJQL() string { return orDefault(c.JQL.Mine, DefaultMineJQL) }
+
+// WaitingJQL is the query for the Waiting on others lane.
+func (c *Config) WaitingJQL() string { return orDefault(c.JQL.Waiting, DefaultWaitingJQL) }
+
+// DoneJQL is the query for the Done this sprint lane.
+func (c *Config) DoneJQL() string { return orDefault(c.JQL.Done, DefaultDoneJQL) }
+
+// PollInterval is how often issues are polled. Default 60s.
+func (c *Config) PollInterval() time.Duration {
+	return secondsOr(c.Settings.PollIntervalSeconds, 60)
+}
+
+// BoardRefreshInterval is how often the board configuration is re-read.
+// Default 10m.
+func (c *Config) BoardRefreshInterval() time.Duration {
+	return secondsOr(c.Settings.BoardRefreshIntervalSeconds, 600)
+}
+
+// StuckAlertAfter is how long a card must stay red before webhooks fire.
+// Default 2h. Load has already validated the value.
+func (c *Config) StuckAlertAfter() time.Duration {
+	d, err := model.ParseAge(orDefault(c.Settings.StuckAlertAfter, "2h"))
+	if err != nil {
+		return 2 * time.Hour
+	}
+	return d
+}
+
+// DefaultView is "kanban" or "list". Default kanban.
+func (c *Config) DefaultView() string { return orDefault(c.Settings.DefaultView, "kanban") }
+
+func orDefault(v, def string) string {
+	if v == "" {
+		return def
+	}
+	return v
+}
+
+func secondsOr(n, def int) time.Duration {
+	if n <= 0 {
+		n = def
+	}
+	return time.Duration(n) * time.Second
+}
+
+// Rules builds the health rules for the given account ID. Threshold defaults
+// apply per column: a user [thresholds.X] table replaces only column X, and a
+// table with neither yellow nor red disables that column. BlockedLabels
+// defaults to ["blocked"] only when the key is absent.
 func (c *Config) Rules(me string) (model.Rules, error) {
-	r := model.Rules{Me: me, BlockedLabels: c.BlockedLabels, Thresholds: map[string]model.Threshold{}}
+	labels := c.BlockedLabels
+	if labels == nil {
+		labels = []string{"blocked"}
+	}
+	merged := defaultThresholds()
 	for col, a := range c.Thresholds {
+		merged[col] = a
+	}
+	r := model.Rules{Me: me, BlockedLabels: labels, Thresholds: map[string]model.Threshold{}}
+	for col, a := range merged {
 		var th model.Threshold
 		var err error
 		if a.Yellow != "" {
@@ -241,7 +273,7 @@ func WriteStarter(path string, j Jira) (*Config, error) {
 		return nil, fmt.Errorf("%s already exists (use --force)", path)
 	}
 	c := &Config{Jira: j, path: path}
-	if err := c.applyDefaultsAndValidate(); err != nil {
+	if err := c.validate(); err != nil {
 		return nil, err
 	}
 	return c, c.Save()

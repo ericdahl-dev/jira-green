@@ -31,17 +31,17 @@ func TestLoadDefaults(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if c.Settings.PollIntervalSeconds != 60 || c.Settings.BoardRefreshIntervalSeconds != 600 {
-		t.Errorf("settings %+v", c.Settings)
+	if c.PollInterval() != 60*time.Second || c.BoardRefreshInterval() != 10*time.Minute {
+		t.Errorf("intervals %v %v", c.PollInterval(), c.BoardRefreshInterval())
 	}
-	if c.Settings.DefaultView != "kanban" {
-		t.Errorf("view %q", c.Settings.DefaultView)
+	if c.DefaultView() != "kanban" {
+		t.Errorf("view %q", c.DefaultView())
 	}
-	if c.Settings.StuckAlertAfter != "2h" {
-		t.Errorf("stuck_alert_after %q", c.Settings.StuckAlertAfter)
+	if c.StuckAlertAfter() != 2*time.Hour {
+		t.Errorf("stuck_alert_after %v", c.StuckAlertAfter())
 	}
-	if c.JQL.Mine == "" || c.JQL.Waiting == "" || c.JQL.Done == "" {
-		t.Errorf("default JQL missing: %+v", c.JQL)
+	if c.MineJQL() != DefaultMineJQL || c.WaitingJQL() != DefaultWaitingJQL || c.DoneJQL() != DefaultDoneJQL {
+		t.Errorf("default JQL %q %q %q", c.MineJQL(), c.WaitingJQL(), c.DoneJQL())
 	}
 	r, err := c.Rules("acct-me")
 	if err != nil {
@@ -173,8 +173,11 @@ func TestWriteStarter(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if c.Jira != j || c.Settings.DefaultView != "kanban" || len(c.Thresholds) == 0 {
+	if c.Jira != j || c.DefaultView() != "kanban" {
 		t.Errorf("starter %+v", c)
+	}
+	if r, err := c.Rules(""); err != nil || r.Thresholds["In Progress"].Red != 5*24*time.Hour {
+		t.Errorf("starter rules %+v, %v", r, err)
 	}
 	if _, err := WriteStarter(p, j); err == nil {
 		t.Error("want error: starter must not overwrite")
@@ -277,5 +280,73 @@ func TestLoadRejectsMisplacedMuted(t *testing.T) {
 	_, err := Load(write(t, minimal+"muted = [\"ABC-9\"]\n"))
 	if err == nil || !strings.Contains(err.Error(), "jira.muted") {
 		t.Errorf("want unknown-key error naming jira.muted, got %v", err)
+	}
+}
+
+func TestSaveKeepsOnlyWhatUserWrote(t *testing.T) {
+	c, err := Load(write(t, minimal))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := c.SetMuted("ABC-9", true); err != nil {
+		t.Fatal(err)
+	}
+	b, err := os.ReadFile(c.Path())
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, absent := range []string{"[thresholds", "[jql]", "blocked_labels", "[settings]"} {
+		if strings.Contains(string(b), absent) {
+			t.Errorf("saved file contains %q, want only user-written keys:\n%s", absent, b)
+		}
+	}
+}
+
+func TestEmptyBlockedLabelsSurvivesSave(t *testing.T) {
+	c, err := Load(write(t, "blocked_labels = []\n"+minimal))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := c.SetMuted("ABC-9", true); err != nil {
+		t.Fatal(err)
+	}
+	c2, err := Load(c.Path())
+	if err != nil {
+		t.Fatal(err)
+	}
+	r, err := c2.Rules("")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(r.BlockedLabels) != 0 {
+		t.Errorf("blocked labels %v, want none (user disabled them)", r.BlockedLabels)
+	}
+}
+
+func TestAccessorsReturnUserValues(t *testing.T) {
+	body := `
+[settings]
+  poll_interval_seconds = 30
+  board_refresh_interval_seconds = 120
+  stuck_alert_after = "1d"
+  default_view = "list"
+[jira]
+  site = "https://example.atlassian.net"
+  email = "me@example.com"
+  board_id = 7
+[jql]
+  mine = "project = ABC"
+  waiting = "project = ABC AND reporter = currentUser()"
+  done = "project = ABC AND statusCategory = Done"
+`
+	c, err := Load(write(t, body))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if c.PollInterval() != 30*time.Second || c.BoardRefreshInterval() != 2*time.Minute || c.StuckAlertAfter() != 24*time.Hour || c.DefaultView() != "list" {
+		t.Errorf("settings %v %v %v %q", c.PollInterval(), c.BoardRefreshInterval(), c.StuckAlertAfter(), c.DefaultView())
+	}
+	if c.MineJQL() != "project = ABC" || c.WaitingJQL() != "project = ABC AND reporter = currentUser()" || c.DoneJQL() != "project = ABC AND statusCategory = Done" {
+		t.Errorf("jql %q %q %q", c.MineJQL(), c.WaitingJQL(), c.DoneJQL())
 	}
 }
