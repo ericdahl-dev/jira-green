@@ -94,7 +94,9 @@ func (d Dashboard) Init() tea.Cmd { return nil }
 func (d Dashboard) Update(msg tea.Msg) (Dashboard, tea.Cmd) {
 	switch msg := msg.(type) {
 	case tea.WindowSizeMsg:
+		wasList := d.listShown()
 		d.width, d.height = msg.Width, msg.Height
+		d.followResize(wasList)
 		if d.picker != nil {
 			p, _ := d.picker.Update(msg)
 			d.picker = &p
@@ -200,6 +202,22 @@ func (d Dashboard) handleKey(k tea.KeyMsg) (Dashboard, tea.Cmd) {
 		}
 	}
 	return d, nil
+}
+
+// followResize carries the selected card across a resize that swaps the
+// kanban for its narrow-terminal list, or back, so t and o keep their target.
+func (d *Dashboard) followResize(wasList bool) {
+	switch {
+	case wasList == d.listShown():
+	case wasList:
+		if r := d.listRow(); r != nil && r.Card != nil {
+			d.findKanban(r.Card.Key)
+		}
+	default:
+		if c := d.kanbanSelected(); c != nil {
+			d.findListRow(&ListRow{Card: c})
+		}
+	}
 }
 
 // refreshDetail swaps the detail's card for its copy in the new snapshot. A

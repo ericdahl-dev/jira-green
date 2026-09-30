@@ -331,7 +331,8 @@ func TestNarrowKanbanFallsBackToList(t *testing.T) {
 	if d.Mode() != ui.ViewKanban {
 		t.Error("the chosen mode stays kanban")
 	}
-	if got := selKey(press(d, "down")); got != "ABC-1836" {
+	// The list starts on the kanban's card, ABC-2011, under Accessibility.
+	if got := selKey(press(d, "up", "up")); got != "ABC-1990" {
 		t.Errorf("keys drive the list that is shown: selected %q", got)
 	}
 	for _, l := range ls {
@@ -629,5 +630,18 @@ func TestOFailureInDetailTimesOut(t *testing.T) {
 	}
 	if d = feed(d, tick); strings.Contains(d.View(), "open failed") {
 		t.Errorf("it clears after flashFor:\n%s", d.View())
+	}
+}
+
+func TestNarrowFallbackKeepsTheSelectedCard(t *testing.T) {
+	d := press(loaded(t, "kanban"), "right") // ABC-1974
+	d, _ = d.Update(tea.WindowSizeMsg{Width: 47, Height: 40})
+	if got := selKey(d); got != "ABC-1974" {
+		t.Errorf("narrowing: the list selects %q, want the kanban's ABC-1974", got)
+	}
+	d = press(d, "up", "up") // over the Auth header to ABC-1836
+	d, _ = d.Update(tea.WindowSizeMsg{Width: 120, Height: 40})
+	if got := selKey(d); got != "ABC-1836" {
+		t.Errorf("widening: the kanban selects %q, want the list's ABC-1836", got)
 	}
 }
