@@ -3738,8 +3738,11 @@ Decisions made after this plan was written. The code is authoritative; this reco
 
 - **Board scoping.** `jira.API.BoardColumns` became `BoardConfig`, returning
   `jira.BoardConfig{Columns, FilterID}` from the one configuration request. The poller ANDs
-  `filter = ID` onto the Mine and Done queries, including a `[jql]` override; Waiting stays
-  global. A missing or non-numeric filter ID scopes nothing.
+  `filter = ID` onto the Mine, Backlog, and Done queries, including a `[jql]` override;
+  Waiting stays global. A missing or non-numeric filter ID scopes nothing, and
+  `Snapshot.Unscoped` puts a dim `unscoped` tag on the status line. A failed board-config
+  refresh keeps the cached columns and filter (the error rides on `Snapshot.BoardErr`); only
+  the first fetch, or a fatal error, fails the poll.
 - **Subtask rollup.** `model.Issue` gained `ParentKey`/`ParentSummary` (set only for subtasks)
   and `DisplaySummary()`. `jira.API` gained `ParentOf(key) (Parent, error)`. For a subtask the
   jira layer sets the story as the epic; the poller replaces it with the story's epic (cached
@@ -3769,6 +3772,17 @@ Decisions made after this plan was written. The code is authoritative; this reco
 - **Incomplete data (Tasks 5, 12).** `model.Evaluate` no longer adds a "data incomplete" reason;
   it sets `Card.Incomplete` and leaves the errors in `DecodeErrors`. `alert.Event` carries both
   as `incomplete` and `decode_errors` (omitted when empty).
+- **Final-review fixes.** Only `LaneDone` cards are hidden with Done off; an open card in the
+  board's last column stays, and that column's header shows whenever it holds one. The list's
+  collapsed Backlog row shows its worst light. The Waiting default adds `OR assignee IS EMPTY`.
+  `Dispatch` returns an error naming each failed webhook by host only; main flashes it on the
+  status line. The last `v` view is remembered in `state.toml` beside `config.toml` and
+  overrides `default_view`; `config.toml` is never rewritten for it. Windows is not a release
+  target.
+- **Known limits.** The stuck clock starts when the app first sees a card red, not when the
+  card turned red in Jira: a card red for days fires `stuck_alert_after` after launch. Webhook
+  HMAC signs the body only, with no timestamp or nonce, so a captured request can be replayed;
+  a receiver that cares should dedupe on `key` + `at`.
 
 ## Out of scope for v1
 

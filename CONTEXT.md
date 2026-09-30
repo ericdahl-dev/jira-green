@@ -25,4 +25,9 @@ Terms used in the code, the docs, and the UI. The code is authoritative.
 - **Epic progress**: an epic's Done of Total child issues, counted by the poller and shown in
   the list view's epic headers. Missing when the count fails, never 0/0.
 - **Board scope**: the board's saved filter, ANDed onto the Mine, Backlog, and Done queries so
-  they show only this board's issues. Waiting stays global.
+  they show only this board's issues. Waiting stays global. With no filter the status line
+  says `unscoped`.
+- **Stuck**: a card red for `stuck_alert_after` (default 2h), which fires one webhook event
+  per incident. The clock starts at the app's first observation of the card as red, not when
+  it turned red in Jira, and restarts with each launch. The webhook's HMAC signature covers
+  the body only: there is no replay protection.
