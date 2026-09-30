@@ -181,7 +181,7 @@ func TestFinishForceKeepsOldFileWhenJiraFails(t *testing.T) {
 	} {
 		t.Run(name, func(t *testing.T) {
 			path := filepath.Join(t.TempDir(), "config.toml")
-			old := []byte("[jira]\nsite = \"https://old.atlassian.net\"\n")
+			old := []byte("[jira]\nsite = \"https://old.example.net\"\n")
 			if err := os.WriteFile(path, old, 0o600); err != nil {
 				t.Fatal(err)
 			}
