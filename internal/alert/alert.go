@@ -37,6 +37,10 @@ type Event struct {
 	Reasons []string  `json:"reasons"`
 	RedFor  string    `json:"red_for"`
 	At      time.Time `json:"at"`
+	// Incomplete and DecodeErrors mirror the card: some fields could not be
+	// decoded, so the reasons may be missing a cause.
+	Incomplete   bool     `json:"incomplete,omitempty"`
+	DecodeErrors []string `json:"decode_errors,omitempty"`
 }
 
 // Dispatcher sends webhook events to configured endpoints.

@@ -1,7 +1,9 @@
 package alert_test
 
 import (
+	"encoding/json"
 	"errors"
+	"strings"
 	"testing"
 	"time"
 
@@ -113,4 +115,26 @@ func TestObserveSnapshotPausesWhileStale(t *testing.T) {
 			t.Fatalf("stale snapshot reset the incident: want 1 event at 2h, got %d", len(ev))
 		}
 	})
+}
+
+func TestStuckEventCarriesDataIncomplete(t *testing.T) {
+	tr := alert.NewTracker(time.Hour)
+	red := card("ABC-1", model.Red)
+	red[0].Incomplete = true
+	red[0].DecodeErrors = []string{"created: bad time"}
+
+	tr.Observe(red, t0)
+	ev := tr.Observe(red, t0.Add(time.Hour))
+	if len(ev) != 1 {
+		t.Fatalf("got %d events, want 1", len(ev))
+	}
+	body, err := json.Marshal(ev[0])
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, want := range []string{`"incomplete":true`, `"decode_errors":["created: bad time"]`} {
+		if !strings.Contains(string(body), want) {
+			t.Errorf("payload %s lacks %s", body, want)
+		}
+	}
 }

@@ -40,6 +40,7 @@ func (t *Tracker) Observe(cards []model.Card, now time.Time) []Event {
 			out = append(out, Event{
 				Type: TypeTicketStuck, Key: c.Key, Summary: c.Summary, Status: c.StatusName,
 				URL: c.URL, Reasons: c.Reasons, RedFor: model.FormatAge(now.Sub(from)), At: now,
+				Incomplete: c.Incomplete, DecodeErrors: c.DecodeErrors,
 			})
 		}
 	}
