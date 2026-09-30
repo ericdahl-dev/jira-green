@@ -1,0 +1,12 @@
+ To Do                                  In Progress                            Code Review                            UA
+─ 🔴 Mine (4) ──────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
+ 🟢 ABC-2011                            🟡 ABC-1974                           >🔴 ABC-1836
+  Add alt text to search results         Fix auth redirect loop                 Solr pagination breaks on page 11
+  1d                                     4d                                     6d ⚑
+ 🟢 ABC-2020
+  Update footer links
+  0m
+─ 🟡 Waiting on others (2) ─────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
+                                        🟡 ABC-1990                                                                   🟢 ABC-1950
+                                         Harden session cookie                                                         Verify catalog export
+                                         @j 3d                                                                         @qa 1d
