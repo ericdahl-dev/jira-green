@@ -29,6 +29,12 @@ func New(site, email, token string) *Client {
 	}
 }
 
+// Site is the Jira base URL, without a trailing slash.
+func (c *Client) Site() string { return c.site }
+
+// BrowseURL is the web URL for an issue key.
+func (c *Client) BrowseURL(key string) string { return c.site + "/browse/" + key }
+
 func (c *Client) do(ctx context.Context, method, path string, body, out any) error {
 	var rdr io.Reader
 	if body != nil {
