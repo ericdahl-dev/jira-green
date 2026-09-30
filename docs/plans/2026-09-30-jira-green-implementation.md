@@ -1615,6 +1615,9 @@ func (c *Client) Myself(ctx context.Context) (User, error) {
 
 ### Task 9: Jira client: search and issue conversion
 
+> **Superseded in part.** Search embeds only the first page of comments; the poller fetches the
+> newest ones. See "Post-plan decisions" (Comment paging). The code below is the original design.
+
 **Files:**
 - Create: `internal/jira/search.go`, `internal/jira/adf.go`
 - Create: `internal/jira/testdata/search_page1.json`, `internal/jira/testdata/search_page2.json`
@@ -2197,6 +2200,9 @@ var _ API = (*Client)(nil)
 ---
 
 ### Task 11: Poller
+
+> **Superseded in part.** `Start` returns only the snapshot channel; refresh is the `Refresh`
+> method. See "Post-plan decisions" (Poller refresh). The code below is the original design.
 
 The poller produces immutable `Snapshot`s on a channel, following coolify-green's poller
 (`../coolify-green/internal/poller/poller.go`). Read that file first; keep the same
@@ -3752,6 +3758,17 @@ Decisions made after this plan was written. The code is authoritative; this reco
   issues for the real user), a Backlog card in a column with no threshold skips the changelog
   and uses `Created` as `StatusSince`; it cannot change the light there. Cards in thresholded
   columns still fetch it, so an aging Code Review backlog ticket goes yellow/red.
+- **Comment paging (Task 9).** Search still asks for the `comment` field, but Jira embeds only
+  the first page. The jira layer sets `model.Issue.CommentsTruncated` when that page is short of
+  the total, and `jira.API` gained `Comments(key)` (newest 100, newest first). The poller calls
+  it only for truncated issues, cached per issue until `Updated` changes. A non-fatal failure
+  keeps the first page and adds a decode error, so the card shows Incomplete.
+- **Poller refresh (Task 11).** `Start(ctx) <-chan Snapshot` returns only the snapshot channel.
+  A forced poll is `Poller.Refresh()`, which never blocks: a pending request absorbs a second
+  one, and a call after Start has stopped does nothing. The channel closes on ctx done or a 401.
+- **Incomplete data (Tasks 5, 12).** `model.Evaluate` no longer adds a "data incomplete" reason;
+  it sets `Card.Incomplete` and leaves the errors in `DecodeErrors`. `alert.Event` carries both
+  as `incomplete` and `decode_errors` (omitted when empty).
 
 ## Out of scope for v1
 
