@@ -44,7 +44,8 @@ type Card struct {
 
 // Evaluate computes a card's stoplight. Red: flagged, blocked label, or over
 // the column's red threshold. Yellow: over yellow, or an unanswered mention.
-// Stale only shows through when nothing is yellow or red.
+// Stale (a stale poll, or DecodeErrors) only shows through when nothing is
+// yellow or red.
 func Evaluate(iss Issue, column string, lane Lane, r Rules, now time.Time, stale bool) Card {
 	c := Card{Issue: iss, Column: column, Lane: lane, Light: Green}
 	raise := func(l Stoplight, why string) {
@@ -76,6 +77,9 @@ func Evaluate(iss Issue, column string, lane Lane, r Rules, now time.Time, stale
 	}
 	if UnansweredMention(r.Me, iss.Comments) {
 		raise(Yellow, "unanswered mention")
+	}
+	if len(iss.DecodeErrors) > 0 {
+		raise(Stale, "data incomplete: "+strings.Join(iss.DecodeErrors, "; "))
 	}
 	if stale {
 		c.Light = Worst(c.Light, Stale)

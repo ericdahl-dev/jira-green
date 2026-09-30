@@ -22,6 +22,9 @@ type Issue struct {
 	// fills it from the changelog; zero means "not yet known".
 	StatusSince time.Time
 	Comments    []Comment
+	// DecodeErrors lists fields the jira package could not decode, as
+	// "field: error". Non-empty marks the issue's data as incomplete.
+	DecodeErrors []string
 }
 
 // Comment is one issue comment, with the account IDs it @-mentions.

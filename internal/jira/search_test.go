@@ -6,6 +6,7 @@ import (
 	"net/http"
 	"os"
 	"slices"
+	"strings"
 	"testing"
 	"time"
 )
@@ -79,5 +80,52 @@ func TestSearchSkipsMentionsWithoutID(t *testing.T) {
 	}
 	if got := issues[0].Comments[0].Mentions; !slices.Equal(got, []string{"acct-jsmith"}) {
 		t.Errorf("mentions %q", got)
+	}
+}
+
+func TestSearchKeepsGoodFieldsWhenOneIsMalformed(t *testing.T) {
+	c := newTest(t, func(w http.ResponseWriter, r *http.Request) {
+		_, _ = w.Write([]byte(`{"isLast":true,"issues":[{"key":"ABC-4","fields":{
+			"summary":"Still here","status":{"id":"3","name":"In Progress"},
+			"labels":["blocked"],"created":"not a time","updated":null}}]}`))
+	})
+	issues, err := c.Search(context.Background(), "project = ABC", "")
+	if err != nil || len(issues) != 1 {
+		t.Fatalf("%+v %v", issues, err)
+	}
+	a := issues[0]
+	if a.Summary != "Still here" || a.StatusID != "3" || !slices.Equal(a.Labels, []string{"blocked"}) {
+		t.Errorf("good fields lost: %+v", a)
+	}
+	if len(a.DecodeErrors) != 1 || !strings.HasPrefix(a.DecodeErrors[0], "created: ") {
+		t.Errorf("decode errors %q, want one for created", a.DecodeErrors)
+	}
+}
+
+func TestSearchFlaggedNotArrayIsDecodeError(t *testing.T) {
+	c := newTest(t, func(w http.ResponseWriter, r *http.Request) {
+		_, _ = w.Write([]byte(`{"isLast":true,"issues":[{"key":"ABC-5","fields":{
+			"summary":"s","customfield_10021":{"value":"Impediment"}}}]}`))
+	})
+	issues, err := c.Search(context.Background(), "project = ABC", "customfield_10021")
+	if err != nil || len(issues) != 1 {
+		t.Fatalf("%+v %v", issues, err)
+	}
+	if a := issues[0]; a.Flagged || len(a.DecodeErrors) != 1 || !strings.HasPrefix(a.DecodeErrors[0], "customfield_10021: ") {
+		t.Errorf("flagged %v decode errors %q", a.Flagged, a.DecodeErrors)
+	}
+}
+
+func TestSearchMalformedStatusLeavesStatusEmpty(t *testing.T) {
+	c := newTest(t, func(w http.ResponseWriter, r *http.Request) {
+		_, _ = w.Write([]byte(`{"isLast":true,"issues":[{"key":"ABC-6","fields":{
+			"summary":"s","status":{"id":3,"name":"In Progress"}}}]}`))
+	})
+	issues, err := c.Search(context.Background(), "project = ABC", "")
+	if err != nil || len(issues) != 1 {
+		t.Fatalf("%+v %v", issues, err)
+	}
+	if a := issues[0]; a.StatusID != "" || a.StatusName != "" || len(a.DecodeErrors) != 1 {
+		t.Errorf("status %q/%q decode errors %q", a.StatusID, a.StatusName, a.DecodeErrors)
 	}
 }

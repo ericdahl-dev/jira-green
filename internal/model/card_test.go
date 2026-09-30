@@ -1,6 +1,7 @@
 package model_test
 
 import (
+	"slices"
 	"testing"
 	"time"
 
@@ -110,5 +111,21 @@ func TestEvaluateThresholdEdges(t *testing.T) {
 		if got.Light != c.want {
 			t.Errorf("%s: light %v want %v (reasons %v)", c.name, got.Light, c.want, got.Reasons)
 		}
+	}
+}
+
+func TestEvaluateDecodeErrorsAreStale(t *testing.T) {
+	iss := model.Issue{DecodeErrors: []string{"created: bad time", "flagged: not an array"}}
+	c := model.Evaluate(iss, "To Do", model.LaneMine, rules(), t0, false)
+	if c.Light != model.Stale {
+		t.Errorf("light %v, want stale", c.Light)
+	}
+	want := "data incomplete: created: bad time; flagged: not an array"
+	if !slices.Contains(c.Reasons, want) {
+		t.Errorf("reasons %q, want %q", c.Reasons, want)
+	}
+	iss.Flagged = true
+	if c := model.Evaluate(iss, "To Do", model.LaneMine, rules(), t0, false); c.Light != model.Red {
+		t.Errorf("flagged + decode errors: light %v, want red", c.Light)
 	}
 }

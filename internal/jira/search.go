@@ -3,6 +3,7 @@ package jira
 import (
 	"context"
 	"encoding/json"
+	"fmt"
 	"net/http"
 
 	"github.com/ericdahl-dev/jira-green/internal/model"
@@ -49,62 +50,81 @@ func (c *Client) Search(ctx context.Context, jql, flaggedField string) ([]model.
 	}
 }
 
-func (c *Client) convert(ai apiIssue, flaggedField string) model.Issue {
-	var f struct {
-		Summary string `json:"summary"`
-		Status  struct {
-			ID   string `json:"id"`
-			Name string `json:"name"`
-		} `json:"status"`
-		Assignee *User `json:"assignee"`
-		Parent   *struct {
-			Key    string `json:"key"`
-			Fields struct {
-				Summary string `json:"summary"`
-			} `json:"fields"`
-		} `json:"parent"`
-		Labels  []string `json:"labels"`
-		Created Time     `json:"created"`
-		Updated Time     `json:"updated"`
-		Comment struct {
-			Comments []struct {
-				Author  User `json:"author"`
-				Created Time `json:"created"`
-				Body    any  `json:"body"`
-			} `json:"comments"`
-		} `json:"comment"`
-	}
-	raw, _ := json.Marshal(ai.Fields)
-	_ = json.Unmarshal(raw, &f)
+type apiComment struct {
+	Author  User `json:"author"`
+	Created Time `json:"created"`
+	Body    any  `json:"body"`
+}
 
-	iss := model.Issue{
-		Key:        ai.Key,
-		Summary:    f.Summary,
-		URL:        c.BrowseURL(ai.Key),
-		StatusID:   f.Status.ID,
-		StatusName: f.Status.Name,
-		Labels:     f.Labels,
-		Created:    f.Created.Time,
-		Updated:    f.Updated.Time,
+type apiParent struct {
+	Key    string `json:"key"`
+	Fields struct {
+		Summary string `json:"summary"`
+	} `json:"fields"`
+}
+
+type apiStatus struct {
+	ID   string `json:"id"`
+	Name string `json:"name"`
+}
+
+// fieldDecoder decodes issue fields one at a time, so one malformed field
+// does not blank the others. It collects "name: err" for each failure.
+type fieldDecoder struct {
+	fields map[string]json.RawMessage
+	errs   []string
+}
+
+// decodeField decodes fields[name] into a fresh T. Missing and null fields
+// give the zero value and ok=false with no error; a decode failure gives the
+// zero value (never a partial one), ok=false, and records the error.
+func decodeField[T any](d *fieldDecoder, name string) (v T, ok bool) {
+	raw, present := d.fields[name]
+	if !present || string(raw) == "null" {
+		return v, false
 	}
-	if f.Assignee != nil {
-		iss.AssigneeID, iss.AssigneeName = f.Assignee.AccountID, f.Assignee.DisplayName
+	if err := json.Unmarshal(raw, &v); err != nil {
+		d.errs = append(d.errs, fmt.Errorf("%s: %w", name, err).Error())
+		var zero T
+		return zero, false
 	}
-	if f.Parent != nil {
-		iss.EpicKey, iss.EpicSummary = f.Parent.Key, f.Parent.Fields.Summary
+	return v, true
+}
+
+func (c *Client) convert(ai apiIssue, flaggedField string) model.Issue {
+	d := &fieldDecoder{fields: ai.Fields}
+	iss := model.Issue{Key: ai.Key, URL: c.BrowseURL(ai.Key)}
+	iss.Summary, _ = decodeField[string](d, "summary")
+	if st, ok := decodeField[apiStatus](d, "status"); ok {
+		iss.StatusID, iss.StatusName = st.ID, st.Name
+	}
+	if a, ok := decodeField[User](d, "assignee"); ok {
+		iss.AssigneeID, iss.AssigneeName = a.AccountID, a.DisplayName
+	}
+	if p, ok := decodeField[apiParent](d, "parent"); ok {
+		iss.EpicKey, iss.EpicSummary = p.Key, p.Fields.Summary
+	}
+	iss.Labels, _ = decodeField[[]string](d, "labels")
+	if t, ok := decodeField[Time](d, "created"); ok {
+		iss.Created = t.Time
+	}
+	if t, ok := decodeField[Time](d, "updated"); ok {
+		iss.Updated = t.Time
 	}
 	if flaggedField != "" {
-		var flags []any
-		if json.Unmarshal(ai.Fields[flaggedField], &flags) == nil && len(flags) > 0 {
-			iss.Flagged = true
-		}
+		flags, _ := decodeField[[]any](d, flaggedField)
+		iss.Flagged = len(flags) > 0
 	}
-	for _, cm := range f.Comment.Comments {
+	cm, _ := decodeField[struct {
+		Comments []apiComment `json:"comments"`
+	}](d, "comment")
+	for _, cm := range cm.Comments {
 		iss.Comments = append(iss.Comments, model.Comment{
 			AuthorID: cm.Author.AccountID,
 			Created:  cm.Created.Time,
 			Mentions: mentions(cm.Body),
 		})
 	}
+	iss.DecodeErrors = d.errs
 	return iss
 }
