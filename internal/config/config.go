@@ -277,10 +277,12 @@ func (c *Config) MutedKeys() []string {
 }
 
 // SetMuted adds or removes a key from the mute list and saves. It holds the
-// write lock through the save, so concurrent calls save in order.
+// write lock through the save, so concurrent calls save in order. When the
+// save fails the mute list is left as it was, so memory matches the file.
 func (c *Config) SetMuted(key string, muted bool) error {
 	c.mu.Lock()
 	defer c.mu.Unlock()
+	was := slices.Clone(c.Muted) // DeleteFunc edits in place
 	has := slices.Contains(c.Muted, key)
 	switch {
 	case muted && !has:
@@ -290,7 +292,11 @@ func (c *Config) SetMuted(key string, muted bool) error {
 	default:
 		return nil
 	}
-	return c.save()
+	if err := c.save(); err != nil {
+		c.Muted = was
+		return err
+	}
+	return nil
 }
 
 // Save writes the config atomically: a temp file in the same directory,

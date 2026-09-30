@@ -567,3 +567,25 @@ func TestWriteStarterReturnsNoConfigOnError(t *testing.T) {
 		t.Errorf("onto an existing file: config %v, err %v; want nil and an error", c, err)
 	}
 }
+
+func TestSetMutedFailedSaveLeavesMutesUnchanged(t *testing.T) {
+	c, err := config.Load(write(t, "muted = [\"ABC-1\", \"ABC-2\"]\n"+minimal))
+	if err != nil {
+		t.Fatal(err)
+	}
+	dir := filepath.Dir(c.Path())
+	if err := os.Chmod(dir, 0o500); err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = os.Chmod(dir, 0o700) })
+
+	if err := c.SetMuted("ABC-9", true); err == nil {
+		t.Fatal("save into a read-only dir succeeded")
+	}
+	if err := c.SetMuted("ABC-1", false); err == nil {
+		t.Fatal("save into a read-only dir succeeded")
+	}
+	if c.IsMuted("ABC-9") || !c.IsMuted("ABC-1") || !c.IsMuted("ABC-2") {
+		t.Errorf("mutes changed after failed saves: %v", c.MutedKeys())
+	}
+}
