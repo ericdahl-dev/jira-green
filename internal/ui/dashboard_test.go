@@ -111,6 +111,16 @@ func TestStatusLineShowsSyncTime(t *testing.T) {
 	}
 }
 
+func TestStatusLineTagsAnUnscopedBoard(t *testing.T) {
+	d, _ := loaded(t, "kanban").Update(poller.Snapshot{Columns: fxCols, Cards: fxCards(), At: fxAt, Unscoped: true})
+	if got := status(d); !strings.HasPrefix(got, "updated 14:05:09  ·  unscoped  ·  ←") {
+		t.Errorf("status %q", got)
+	}
+	if got := status(loaded(t, "kanban")); strings.Contains(got, "unscoped") {
+		t.Errorf("a scoped board is tagged: %q", got)
+	}
+}
+
 func TestStatusLineShowsStaleAndAuth(t *testing.T) {
 	d := loaded(t, "kanban")
 	d, _ = d.Update(poller.Snapshot{Columns: fxCols, Cards: fxCards(), At: fxAt, Err: errors.New("jira: HTTP 502 Bad Gateway")})

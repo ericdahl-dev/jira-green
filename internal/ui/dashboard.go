@@ -507,7 +507,12 @@ func (d Dashboard) statusLine() string {
 	default:
 		synced = "updated " + d.snap.At.Format("15:04:05")
 	}
-	parts := []string{synced, keyHints}
+	parts := []string{synced}
+	if d.snap.Unscoped {
+		// No board filter: Mine, Backlog, and Done span every board.
+		parts = append(parts, "unscoped")
+	}
+	parts = append(parts, keyHints)
 	if d.flash != "" {
 		parts = append([]string{d.flash}, parts...)
 	}

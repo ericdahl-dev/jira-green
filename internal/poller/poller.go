@@ -26,6 +26,9 @@ type Snapshot struct {
 	EpicProgress map[string]model.Progress
 	At           time.Time
 	Err          error
+	// Unscoped is set when the board has no usable saved filter, so the
+	// Mine, Backlog, and Done lanes are not limited to this board.
+	Unscoped bool
 	// AuthFailed is set on a 401: the credentials are bad and polling stops.
 	AuthFailed bool
 	// RetryAfter is the server's requested backoff after a 429; Start waits
@@ -112,7 +115,7 @@ func (p *Poller) PollOnce(ctx context.Context) Snapshot {
 // marks the cards stale. Worst keeps a red or yellow light, so a network blip
 // does not hide a problem.
 func (p *Poller) staleFrom(err error) Snapshot {
-	s := Snapshot{Columns: p.last.Columns, EpicProgress: p.last.EpicProgress, At: p.last.At, Err: err}
+	s := Snapshot{Columns: p.last.Columns, EpicProgress: p.last.EpicProgress, At: p.last.At, Err: err, Unscoped: p.last.Unscoped}
 	for _, c := range p.last.Cards {
 		c.Light = model.Worst(c.Light, model.Stale)
 		s.Cards = append(s.Cards, c)
@@ -210,7 +213,7 @@ func (p *Poller) fetch(ctx context.Context, now time.Time) (Snapshot, error) {
 	if err != nil {
 		return Snapshot{}, err
 	}
-	return Snapshot{Columns: p.cols, Cards: cards, EpicProgress: progress, At: now}, nil
+	return Snapshot{Columns: p.cols, Cards: cards, EpicProgress: progress, At: now, Unscoped: p.filterID == ""}, nil
 }
 
 // epicProgress counts done and total child issues for each epic the cards

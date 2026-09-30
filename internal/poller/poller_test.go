@@ -723,6 +723,26 @@ func TestPollWithoutABoardFilterScopesNothing(t *testing.T) {
 	}
 }
 
+func TestSnapshotSaysWhetherLanesAreUnscoped(t *testing.T) {
+	c := cfg(t, "")
+	f := newFake() // filterID ""
+	now := t0
+	p := newPoller(c, f, &now)
+	if snap := p.PollOnce(context.Background()); !snap.Unscoped {
+		t.Error("no board filter, but the snapshot is not Unscoped")
+	}
+	f.err = errors.New("jira: HTTP 502")
+	if snap := p.PollOnce(context.Background()); !snap.Unscoped {
+		t.Error("a stale snapshot forgot Unscoped")
+	}
+
+	f = newFake()
+	f.filterID = "12345"
+	if snap := newPoller(c, f, &now).PollOnce(context.Background()); snap.Unscoped {
+		t.Error("a scoped poll says Unscoped")
+	}
+}
+
 func TestPollScopesAMineOverride(t *testing.T) {
 	c := cfg(t, "[jql]\n  mine = \"project = ABC OR labels = x\"\n")
 	f := newFake()
