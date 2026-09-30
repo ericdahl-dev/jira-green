@@ -1,6 +1,7 @@
 package alert_test
 
 import (
+	"errors"
 	"testing"
 	"time"
 
@@ -84,4 +85,32 @@ func TestTrackerStaleRedCardKeepsIncident(t *testing.T) {
 	if ev := tr.Observe(fresh, t0.Add(2*time.Hour)); len(ev) != 1 {
 		t.Fatalf("a stale poll reset the incident: want 1 event at 2h, got %d", len(ev))
 	}
+}
+
+func TestObserveSnapshotPausesWhileStale(t *testing.T) {
+	boom := errors.New("poll failed")
+	red := card("ABC-1", model.Red)
+
+	t.Run("a stale sighting does not start an incident", func(t *testing.T) {
+		tr := alert.NewTracker(2 * time.Hour)
+		tr.ObserveSnapshot(red, boom, t0)
+		if ev := tr.ObserveSnapshot(red, nil, t0.Add(2*time.Hour)); len(ev) != 0 {
+			t.Fatalf("timed from a stale sighting: %+v", ev)
+		}
+	})
+	t.Run("a stale snapshot at the threshold does not fire", func(t *testing.T) {
+		tr := alert.NewTracker(2 * time.Hour)
+		tr.ObserveSnapshot(red, nil, t0)
+		if ev := tr.ObserveSnapshot(red, boom, t0.Add(2*time.Hour)); len(ev) != 0 {
+			t.Fatalf("fired on a stale snapshot: %+v", ev)
+		}
+	})
+	t.Run("a stale snapshot does not reset the incident", func(t *testing.T) {
+		tr := alert.NewTracker(2 * time.Hour)
+		tr.ObserveSnapshot(red, nil, t0)
+		tr.ObserveSnapshot(nil, boom, t0.Add(time.Hour)) // no cards, but only because the poll failed
+		if ev := tr.ObserveSnapshot(red, nil, t0.Add(2*time.Hour)); len(ev) != 1 {
+			t.Fatalf("stale snapshot reset the incident: want 1 event at 2h, got %d", len(ev))
+		}
+	})
 }

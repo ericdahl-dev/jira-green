@@ -53,3 +53,14 @@ func (t *Tracker) Observe(cards []model.Card, now time.Time) []Event {
 	}
 	return out
 }
+
+// ObserveSnapshot is Observe for one poll result. When the poll failed
+// (pollErr != nil) its cards are only the last good ones re-marked stale, so
+// it does nothing: a stale snapshot neither advances an incident toward
+// firing nor resets one. Stuck alerts resume with the next good poll.
+func (t *Tracker) ObserveSnapshot(cards []model.Card, pollErr error, now time.Time) []Event {
+	if pollErr != nil {
+		return nil
+	}
+	return t.Observe(cards, now)
+}

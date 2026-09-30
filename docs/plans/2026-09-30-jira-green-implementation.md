@@ -3660,8 +3660,13 @@ Follow `../coolify-green/main.go`'s top-level `model`: a screen enum (dashboard 
   `(string, error)`; exit 1 on the error). If the file is missing, print `no config — run: jira-green init` and exit 1.
 - Build `jira.New(site, email, token)`, `poller.New(cfg, api)`, and
   `alert.New(cfg.Webhooks)` + `alert.NewTracker(stuckAfter)`.
-- On each `poller.Snapshot`: pass it to the dashboard, call `tracker.Observe`, then dispatch the
-  events.
+- On each `poller.Snapshot`: pass it to the dashboard, call
+  `tracker.ObserveSnapshot(snap.Cards, snap.Err, time.Now())`, then dispatch the events with
+  `dispatcher.Dispatch(ctx, evt)`.
+  - **Stuck alerts pause while stale** (user decision): a failed poll (`snap.Err != nil`) carries
+    only the last good cards re-marked stale, so `ObserveSnapshot` ignores it. A stale snapshot
+    neither advances an incident toward firing nor resets one; alerts resume on the next good
+    poll. Do not call `tracker.Observe` directly from main.
 - `RefreshMsg` → `poller.Refresh()`. `Start(ctx)` returns only the snapshot channel; `Refresh`
   never blocks, even after `Start` has stopped on a 401, so the UI must not send on a raw channel.
 - `LoadTransitionsMsg` / `DoTransitionMsg` → run the API call in a `tea.Cmd`, and reply with
