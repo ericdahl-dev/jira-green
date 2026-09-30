@@ -19,3 +19,10 @@ func StatusSince(created time.Time, currentID string, changes []StatusChange) ti
 	}
 	return since
 }
+
+// Comment is one issue comment, with the account IDs it @-mentions.
+type Comment struct {
+	AuthorID string
+	Created  time.Time
+	Mentions []string
+}
