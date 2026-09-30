@@ -244,7 +244,7 @@ func TestSearchSendsFieldsAndMaxResults(t *testing.T) {
 		s, _ := f.(string)
 		fields = append(fields, s)
 	}
-	want := []string{"summary", "status", "assignee", "parent", "labels", "created", "updated", "comment", "customfield_10021"}
+	want := []string{"summary", "status", "assignee", "parent", "issuetype", "labels", "created", "updated", "comment", "customfield_10021"}
 	if !slices.Equal(fields, want) {
 		t.Errorf("fields %q, want %q", fields, want)
 	}
@@ -268,5 +268,59 @@ func TestSearchAPIErrorOnSecondPage(t *testing.T) {
 	var ae *jira.APIError
 	if !errors.As(err, &ae) || ae.Status != http.StatusBadRequest || issues != nil {
 		t.Fatalf("issues %+v err %v, want a 400 APIError and no partial result", issues, err)
+	}
+}
+
+func TestSearchSubtaskKeepsItsStoryAsParent(t *testing.T) {
+	c := newTest(t, func(w http.ResponseWriter, r *http.Request) {
+		var body map[string]any
+		_ = json.NewDecoder(r.Body).Decode(&body)
+		if fields, _ := body["fields"].([]any); !slices.Contains(fields, any("issuetype")) {
+			t.Errorf("fields %v missing issuetype", fields)
+		}
+		_, _ = w.Write([]byte(`{"isLast":true,"issues":[
+			{"key":"ABC-13","fields":{"summary":"Write tests","issuetype":{"subtask":true},
+			 "parent":{"key":"ABC-12","fields":{"summary":"Login story"}}}},
+			{"key":"ABC-12","fields":{"summary":"Login story","issuetype":{"subtask":false},
+			 "parent":{"key":"ABC-100","fields":{"summary":"Auth"}}}}]}`))
+	})
+	issues, err := c.Search(context.Background(), "project = ABC", "")
+	if err != nil || len(issues) != 2 {
+		t.Fatalf("%+v %v", issues, err)
+	}
+	sub, story := issues[0], issues[1]
+	if sub.ParentKey != "ABC-12" || sub.ParentSummary != "Login story" {
+		t.Errorf("subtask parent %q/%q, want ABC-12/Login story", sub.ParentKey, sub.ParentSummary)
+	}
+	// Until the poller resolves the real epic, a subtask groups under its story.
+	if sub.EpicKey != "ABC-12" || sub.EpicSummary != "Login story" {
+		t.Errorf("subtask epic %q/%q, want the story as fallback", sub.EpicKey, sub.EpicSummary)
+	}
+	if story.ParentKey != "" || story.EpicKey != "ABC-100" || story.EpicSummary != "Auth" {
+		t.Errorf("story parent %q epic %q/%q", story.ParentKey, story.EpicKey, story.EpicSummary)
+	}
+}
+
+func TestParentOf(t *testing.T) {
+	c := newTest(t, func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != http.MethodGet || r.URL.Path != "/rest/api/3/issue/ABC-12" || r.URL.Query().Get("fields") != "parent,summary" {
+			t.Errorf("%s %s", r.Method, r.URL)
+		}
+		_, _ = w.Write([]byte(`{"key":"ABC-12","fields":{"summary":"Login story",
+			"parent":{"key":"ABC-100","fields":{"summary":"Auth"}}}}`))
+	})
+	p, err := c.ParentOf(context.Background(), "ABC-12")
+	if err != nil || p.Key != "ABC-100" || p.Summary != "Auth" {
+		t.Fatalf("%+v %v", p, err)
+	}
+}
+
+func TestParentOfNoParent(t *testing.T) {
+	c := newTest(t, func(w http.ResponseWriter, r *http.Request) {
+		_, _ = w.Write([]byte(`{"key":"ABC-12","fields":{"summary":"Login story","parent":null}}`))
+	})
+	p, err := c.ParentOf(context.Background(), "ABC-12")
+	if err != nil || p != (jira.Parent{}) {
+		t.Fatalf("%+v %v, want zero Parent", p, err)
 	}
 }

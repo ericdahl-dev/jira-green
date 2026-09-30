@@ -32,6 +32,9 @@ type fake struct {
 	err           error    // returned by Search when set
 	commentErr    error    // returned by Comments when set
 	changelogErr  map[string]error
+	parents       map[string]jira.Parent // ParentOf answers, by story key
+	parentHits    map[string]int
+	parentErr     map[string]error
 	// searching, when set, makes Search signal it and then block until ctx
 	// is done, returning ctx.Err().
 	searching chan struct{}
@@ -41,6 +44,7 @@ func newFake() *fake {
 	return &fake{
 		byJQL: map[string][]model.Issue{}, changelogs: map[string][]model.StatusChange{}, changelogHits: map[string]int{},
 		comments: map[string][]model.Comment{}, commentHits: map[string]int{}, changelogErr: map[string]error{},
+		parents: map[string]jira.Parent{}, parentHits: map[string]int{}, parentErr: map[string]error{},
 	}
 }
 
@@ -92,6 +96,16 @@ func (f *fake) StatusChanges(_ context.Context, key string) ([]model.StatusChang
 		return nil, err
 	}
 	return f.changelogs[key], nil
+}
+
+func (f *fake) ParentOf(_ context.Context, key string) (jira.Parent, error) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	f.parentHits[key]++
+	if err := f.parentErr[key]; err != nil {
+		return jira.Parent{}, err
+	}
+	return f.parents[key], nil
 }
 
 func (f *fake) Transitions(context.Context, string) ([]jira.Transition, error) { return nil, nil }
@@ -702,5 +716,163 @@ func TestPollScopesAMineOverride(t *testing.T) {
 	newPoller(c, f, &now).PollOnce(context.Background())
 	if len(f.searched) == 0 || f.searched[0] != "(project = ABC OR labels = x) AND filter = 12345" {
 		t.Fatalf("searched %q, want the override parenthesised and scoped", f.searched)
+	}
+}
+
+// subtask is a subtask of story as Search returns it: the story stands in as
+// its epic until the poller resolves the real one.
+func subtask(key, story string) model.Issue {
+	return model.Issue{
+		Key: key, StatusID: "1", Created: t0, Updated: t0,
+		ParentKey: story, ParentSummary: "Login story", EpicKey: story, EpicSummary: "Login story",
+	}
+}
+
+func TestPollRollsSubtasksUpToTheStorysEpic(t *testing.T) {
+	c := cfg(t, "")
+	f := newFake()
+	f.byJQL[c.MineJQL()] = []model.Issue{
+		subtask("ABC-13", "ABC-12"),
+		{Key: "ABC-14", StatusID: "1", Created: t0, Updated: t0, EpicKey: "ABC-100", EpicSummary: "Auth"},
+	}
+	f.parents["ABC-12"] = jira.Parent{Key: "ABC-100", Summary: "Auth"}
+	now := t0
+	snap := newPoller(c, f, &now).PollOnce(context.Background())
+	if snap.Err != nil || len(snap.Cards) != 2 {
+		t.Fatalf("%+v", snap)
+	}
+	sub := snap.Cards[0]
+	if sub.EpicKey != "ABC-100" || sub.EpicSummary != "Auth" || sub.ParentKey != "ABC-12" || len(sub.DecodeErrors) != 0 {
+		t.Errorf("subtask epic %q/%q parent %q errs %q", sub.EpicKey, sub.EpicSummary, sub.ParentKey, sub.DecodeErrors)
+	}
+	gs := model.ByEpic(snap.Cards)
+	if len(gs) != 1 || gs[0].Key != "ABC-100" || len(gs[0].Cards) != 2 {
+		t.Errorf("want one Auth group holding both cards, got %+v", gs)
+	}
+}
+
+func TestPollSubtaskOfAStoryWithNoEpicGoesToNoEpic(t *testing.T) {
+	c := cfg(t, "")
+	f := newFake()
+	f.byJQL[c.MineJQL()] = []model.Issue{subtask("ABC-13", "ABC-12")}
+	// f.parents has no ABC-12 entry: the story has no parent.
+	now := t0
+	snap := newPoller(c, f, &now).PollOnce(context.Background())
+	if snap.Err != nil || len(snap.Cards) != 1 {
+		t.Fatalf("%+v", snap)
+	}
+	if sub := snap.Cards[0]; sub.EpicKey != "" || sub.EpicSummary != "" || sub.ParentKey != "ABC-12" {
+		t.Errorf("epic %q/%q parent %q, want no epic and the story kept", sub.EpicKey, sub.EpicSummary, sub.ParentKey)
+	}
+	if gs := model.ByEpic(snap.Cards); len(gs) != 1 || gs[0].Name != model.NoEpic {
+		t.Errorf("groups %+v, want only No epic", gs)
+	}
+}
+
+func TestPollEpicLookupErrorDegradesOnlyThatCard(t *testing.T) {
+	c := cfg(t, "")
+	f := newFake()
+	f.byJQL[c.MineJQL()] = []model.Issue{subtask("ABC-13", "ABC-12"), {Key: "ABC-2", StatusID: "1", Created: t0, Updated: t0}}
+	f.parentErr["ABC-12"] = &jira.APIError{Status: 500}
+	now := t0
+	snap := newPoller(c, f, &now).PollOnce(context.Background())
+	if snap.Err != nil || len(snap.Cards) != 2 {
+		t.Fatalf("a 500 on one epic lookup failed the poll: %+v", snap)
+	}
+	sub := snap.Cards[0]
+	if sub.EpicKey != "ABC-12" || sub.EpicSummary != "Login story" {
+		t.Errorf("epic %q/%q, want the story kept as fallback", sub.EpicKey, sub.EpicSummary)
+	}
+	if len(sub.DecodeErrors) != 1 || !strings.HasPrefix(sub.DecodeErrors[0], "epic: ") || sub.Light != model.Stale {
+		t.Errorf("decode errors %q light %v, want one epic error and stale", sub.DecodeErrors, sub.Light)
+	}
+	if snap.Cards[1].Light != model.Green {
+		t.Errorf("other card light %v, want green", snap.Cards[1].Light)
+	}
+}
+
+func TestPollEpicLookupRateLimitOrAuthFailsThePoll(t *testing.T) {
+	for _, err := range []error{
+		&jira.APIError{Status: 429, RetryAfter: 30 * time.Second},
+		&jira.APIError{Status: 401},
+		context.Canceled,
+	} {
+		c := cfg(t, "")
+		f := newFake()
+		f.byJQL[c.MineJQL()] = []model.Issue{subtask("ABC-13", "ABC-12")}
+		f.parentErr["ABC-12"] = err
+		now := t0
+		if snap := newPoller(c, f, &now).PollOnce(context.Background()); !errors.Is(snap.Err, err) {
+			t.Errorf("epic lookup %v: snapshot Err = %v, want it propagated", err, snap.Err)
+		}
+	}
+}
+
+func TestPollCachesEpicLookupPerStory(t *testing.T) {
+	c := cfg(t, "[settings]\n  board_refresh_interval_seconds = 600\n")
+	f := newFake()
+	f.byJQL[c.MineJQL()] = []model.Issue{subtask("ABC-13", "ABC-12"), subtask("ABC-15", "ABC-12")}
+	f.parents["ABC-12"] = jira.Parent{Key: "ABC-100", Summary: "Auth"}
+	now := t0
+	p := newPoller(c, f, &now)
+
+	p.PollOnce(context.Background())
+	now = t0.Add(9 * time.Minute)
+	snap := p.PollOnce(context.Background())
+	if f.parentHits["ABC-12"] != 1 {
+		t.Fatalf("two subtasks, two polls inside the interval: want 1 lookup, got %d", f.parentHits["ABC-12"])
+	}
+	if snap.Cards[1].EpicKey != "ABC-100" {
+		t.Errorf("cached epic not used: %+v", snap.Cards[1])
+	}
+	now = t0.Add(10 * time.Minute)
+	p.PollOnce(context.Background())
+	if f.parentHits["ABC-12"] != 2 {
+		t.Fatalf("at the refresh interval: want 2 lookups, got %d", f.parentHits["ABC-12"])
+	}
+}
+
+func TestPollDoesNotCacheAFailedEpicLookup(t *testing.T) {
+	c := cfg(t, "")
+	f := newFake()
+	f.byJQL[c.MineJQL()] = []model.Issue{subtask("ABC-13", "ABC-12")}
+	f.parentErr["ABC-12"] = &jira.APIError{Status: 500}
+	now := t0
+	p := newPoller(c, f, &now)
+	p.PollOnce(context.Background())
+	p.PollOnce(context.Background())
+	if f.parentHits["ABC-12"] != 2 {
+		t.Fatalf("a failed lookup was cached: %d lookups, want 2", f.parentHits["ABC-12"])
+	}
+}
+
+func TestPollPrunesEpicCacheForStoriesNotSeen(t *testing.T) {
+	c := cfg(t, "")
+	f := newFake()
+	f.byJQL[c.MineJQL()] = []model.Issue{subtask("ABC-13", "ABC-12")}
+	f.parents["ABC-12"] = jira.Parent{Key: "ABC-100", Summary: "Auth"}
+	now := t0
+	p := newPoller(c, f, &now)
+
+	p.PollOnce(context.Background())
+	f.byJQL[c.MineJQL()] = nil
+	p.PollOnce(context.Background())
+	f.byJQL[c.MineJQL()] = []model.Issue{subtask("ABC-13", "ABC-12")}
+	p.PollOnce(context.Background())
+	if f.parentHits["ABC-12"] != 2 {
+		t.Fatalf("epic cache kept a story no subtask referenced: %d lookups, want 2", f.parentHits["ABC-12"])
+	}
+}
+
+func TestPollMutedEpicOrStoryHidesItsSubtasks(t *testing.T) {
+	c := cfg(t, `muted = ["ABC-100", "ABC-22"]`)
+	f := newFake()
+	f.byJQL[c.MineJQL()] = []model.Issue{subtask("ABC-13", "ABC-12"), subtask("ABC-23", "ABC-22"), subtask("ABC-33", "ABC-32")}
+	f.parents["ABC-12"] = jira.Parent{Key: "ABC-100", Summary: "Auth"}
+	f.parents["ABC-32"] = jira.Parent{Key: "ABC-300", Summary: "Search"}
+	now := t0
+	snap := newPoller(c, f, &now).PollOnce(context.Background())
+	if len(snap.Cards) != 1 || snap.Cards[0].Key != "ABC-33" {
+		t.Fatalf("want only ABC-33 (epic ABC-100 and story ABC-22 muted), got %+v", snap.Cards)
 	}
 }

@@ -45,7 +45,15 @@ type Poller struct {
 	colsAt     time.Time
 	changelogs map[string]clEntry
 	comments   map[string]cmEntry
+	epics      map[string]epicEntry // by story key
 	last       Snapshot
+}
+
+// epicEntry caches a story's epic for BoardRefreshInterval: a story rarely
+// moves between epics, and the story's Updated is not in the subtask's data.
+type epicEntry struct {
+	at   time.Time
+	epic jira.Parent
 }
 
 // cmEntry caches an issue's fetched comments, valid while the issue's
@@ -66,7 +74,7 @@ type clEntry struct {
 func New(cfg *config.Config, api jira.API) *Poller {
 	return &Poller{
 		cfg: cfg, api: api, now: time.Now, after: time.After, changelogs: map[string]clEntry{}, comments: map[string]cmEntry{},
-		refresh: make(chan struct{}, 1),
+		epics: map[string]epicEntry{}, refresh: make(chan struct{}, 1),
 	}
 }
 
@@ -130,6 +138,7 @@ func (p *Poller) fetch(ctx context.Context, now time.Time) (Snapshot, error) {
 		{model.LaneDone, p.scoped(p.cfg.DoneJQL())},
 	}
 	seen := map[string]bool{}
+	stories := map[string]bool{} // stories whose subtasks were looked up
 	var cards []model.Card
 	for _, l := range lanes {
 		issues, err := p.api.Search(ctx, l.jql, p.cfg.Jira.FlaggedField)
@@ -137,7 +146,16 @@ func (p *Poller) fetch(ctx context.Context, now time.Time) (Snapshot, error) {
 			return Snapshot{}, err
 		}
 		for _, iss := range issues {
-			if seen[iss.Key] || p.cfg.IsMuted(iss.Key) || (iss.EpicKey != "" && p.cfg.IsMuted(iss.EpicKey)) {
+			if seen[iss.Key] || p.cfg.IsMuted(iss.Key) {
+				continue
+			}
+			if iss.ParentKey != "" {
+				stories[iss.ParentKey] = true
+				if err := p.rollUp(ctx, &iss, now); err != nil {
+					return Snapshot{}, err
+				}
+			}
+			if p.mutedParent(iss) {
 				continue
 			}
 			seen[iss.Key] = true
@@ -167,7 +185,36 @@ func (p *Poller) fetch(ctx context.Context, now time.Time) (Snapshot, error) {
 	// the caches do not grow without bound over a long session.
 	maps.DeleteFunc(p.changelogs, func(k string, _ clEntry) bool { return !seen[k] })
 	maps.DeleteFunc(p.comments, func(k string, _ cmEntry) bool { return !seen[k] })
+	maps.DeleteFunc(p.epics, func(k string, _ epicEntry) bool { return !stories[k] })
 	return Snapshot{Columns: p.cols, Cards: cards, At: now}, nil
+}
+
+// mutedParent reports whether the issue's epic, or a subtask's story, is
+// muted.
+func (p *Poller) mutedParent(iss model.Issue) bool {
+	return (iss.EpicKey != "" && p.cfg.IsMuted(iss.EpicKey)) ||
+		(iss.ParentKey != "" && p.cfg.IsMuted(iss.ParentKey))
+}
+
+// rollUp moves a subtask from its story to the story's epic, or to no epic
+// when the story has none. A non-fatal lookup failure leaves the subtask
+// grouped under its story and marks the card with a decode error.
+func (p *Poller) rollUp(ctx context.Context, iss *model.Issue, now time.Time) error {
+	e, ok := p.epics[iss.ParentKey]
+	if !ok || now.Sub(e.at) >= p.cfg.BoardRefreshInterval() {
+		epic, err := p.api.ParentOf(ctx, iss.ParentKey)
+		if err != nil {
+			if fatal(err) {
+				return err
+			}
+			iss.DecodeErrors = append(iss.DecodeErrors, fmt.Sprintf("epic: parent of %s: %v", iss.ParentKey, err))
+			return nil
+		}
+		e = epicEntry{at: now, epic: epic}
+		p.epics[iss.ParentKey] = e
+	}
+	iss.EpicKey, iss.EpicSummary = e.epic.Key, e.epic.Summary
+	return nil
 }
 
 // scoped ANDs the board's saved filter onto a lane query, so the lane shows

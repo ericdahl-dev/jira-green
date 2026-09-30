@@ -97,6 +97,16 @@ narrow terminals.
 ▶ 🟢 Accessibility           Mine 1
 ```
 
+**Subtask rollup.** In Jira Cloud a subtask's `parent` is its story, not the epic. Search
+requests `issuetype` and, for a subtask (`issuetype.subtask`), keeps the story as
+`ParentKey`/`ParentSummary`. The poller then reads the story's own parent
+(`GET /rest/api/3/issue/{story}?fields=parent,summary`), caches it per story for the board
+refresh interval, and files the subtask under that epic, or under No epic when the story has
+none. Rows show a subtask as `ABC-12 › Write tests` (`Issue.DisplaySummary`). Muting the epic or
+the story hides the subtask. A failed lookup follows the usual rule: a 401, 429, or cancelled
+context fails the poll; anything else marks the card data-incomplete and leaves it grouped under
+its story.
+
 ## Keys
 
 | Key | Action |

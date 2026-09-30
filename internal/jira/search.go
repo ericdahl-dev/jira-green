@@ -14,7 +14,7 @@ import (
 // silently truncated result.
 const maxPages = 50
 
-var baseFields = []string{"summary", "status", "assignee", "parent", "labels", "created", "updated", "comment"}
+var baseFields = []string{"summary", "status", "assignee", "parent", "issuetype", "labels", "created", "updated", "comment"}
 
 type apiIssue struct {
 	Key    string                     `json:"key"`
@@ -79,6 +79,10 @@ type apiParent struct {
 	} `json:"fields"`
 }
 
+type apiIssueType struct {
+	Subtask bool `json:"subtask"`
+}
+
 type apiStatus struct {
 	ID   string `json:"id"`
 	Name string `json:"name"`
@@ -118,7 +122,12 @@ func (c *Client) convert(ai apiIssue, flaggedField string) model.Issue {
 		iss.AssigneeID, iss.AssigneeName = a.AccountID, a.DisplayName
 	}
 	if p, ok := decodeField[apiParent](d, "parent"); ok {
+		// A subtask's parent is its story, not an epic. The story stands in
+		// as the epic until the poller resolves the story's own parent.
 		iss.EpicKey, iss.EpicSummary = p.Key, p.Fields.Summary
+		if it, _ := decodeField[apiIssueType](d, "issuetype"); it.Subtask {
+			iss.ParentKey, iss.ParentSummary = p.Key, p.Fields.Summary
+		}
 	}
 	iss.Labels, _ = decodeField[[]string](d, "labels")
 	if t, ok := decodeField[Time](d, "created"); ok {
@@ -160,4 +169,28 @@ func toComments(in []apiComment) []model.Comment {
 		})
 	}
 	return out
+}
+
+// Parent is an issue's parent. The zero value means it has none.
+type Parent struct {
+	Key     string
+	Summary string
+}
+
+// ParentOf returns key's parent. The poller calls it with a subtask's story
+// to find the epic, since a subtask's own parent is the story.
+func (c *Client) ParentOf(ctx context.Context, key string) (Parent, error) {
+	var r struct {
+		Fields struct {
+			Parent *apiParent `json:"parent"`
+		} `json:"fields"`
+	}
+	path := "/rest/api/3/issue/" + url.PathEscape(key) + "?fields=parent,summary"
+	if err := c.do(ctx, http.MethodGet, path, nil, &r); err != nil {
+		return Parent{}, err
+	}
+	if r.Fields.Parent == nil {
+		return Parent{}, nil
+	}
+	return Parent{Key: r.Fields.Parent.Key, Summary: r.Fields.Parent.Fields.Summary}, nil
 }

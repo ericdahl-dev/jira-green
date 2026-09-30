@@ -3734,6 +3734,11 @@ Decisions made after this plan was written. The code is authoritative; this reco
   `jira.BoardConfig{Columns, FilterID}` from the one configuration request. The poller ANDs
   `filter = ID` onto the Mine and Done queries, including a `[jql]` override; Waiting stays
   global. A missing or non-numeric filter ID scopes nothing.
+- **Subtask rollup.** `model.Issue` gained `ParentKey`/`ParentSummary` (set only for subtasks)
+  and `DisplaySummary()`. `jira.API` gained `ParentOf(key) (Parent, error)`. For a subtask the
+  jira layer sets the story as the epic; the poller replaces it with the story's epic (cached
+  per story, TTL `BoardRefreshInterval`, failures not cached, pruned when no subtask references
+  the story). Fatal-vs-degrade matches changelog and comments.
 
 ## Out of scope for v1
 

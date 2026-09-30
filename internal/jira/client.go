@@ -104,6 +104,7 @@ type API interface {
 	BoardConfig(ctx context.Context, boardID int) (BoardConfig, error)
 	StatusChanges(ctx context.Context, key string) ([]model.StatusChange, error)
 	Comments(ctx context.Context, key string) ([]model.Comment, error)
+	ParentOf(ctx context.Context, key string) (Parent, error)
 	Transitions(ctx context.Context, key string) ([]Transition, error)
 	DoTransition(ctx context.Context, key, transitionID string) error
 }

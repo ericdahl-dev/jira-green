@@ -37,3 +37,14 @@ func TestStatusSinceIgnoresOrder(t *testing.T) {
 		t.Fatalf("got %v", got)
 	}
 }
+
+func TestDisplaySummaryPrefixesASubtasksStory(t *testing.T) {
+	sub := model.Issue{Key: "ABC-13", Summary: "Write tests", ParentKey: "ABC-12"}
+	if got := sub.DisplaySummary(); got != "ABC-12 › Write tests" {
+		t.Errorf("subtask: %q", got)
+	}
+	story := model.Issue{Key: "ABC-12", Summary: "Login story", EpicKey: "ABC-100"}
+	if got := story.DisplaySummary(); got != "Login story" {
+		t.Errorf("story: %q", got)
+	}
+}
