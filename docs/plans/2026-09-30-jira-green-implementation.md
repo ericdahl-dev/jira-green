@@ -1053,7 +1053,7 @@ func TestLoadDefaults(t *testing.T) {
 func TestLoadRejects(t *testing.T) {
 	for name, body := range map[string]string{
 		"no site":  `[jira]` + "\n" + `board_id = 1`,
-		"no board": `[jira]` + "\n" + `site = "https://x.atlassian.net"`,
+		"no board": `[jira]` + "\n" + `site = "https://example.atlassian.net"`,
 		"bad view": minimal + "\n[settings]\n  default_view = \"grid\"\n",
 		"bad age":  minimal + "\n[thresholds.\"UA\"]\n  yellow = \"soon\"\n",
 	} {
