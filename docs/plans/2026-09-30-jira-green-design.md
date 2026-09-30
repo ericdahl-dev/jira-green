@@ -43,7 +43,7 @@ Board config is refreshed every 10 minutes. The Done column is hidden by default
 JQL queries, each overridable under `[jql]`:
 
 - **Mine**: `assignee = currentUser() AND sprint IN openSprints() AND statusCategory != Done`
-- **Waiting on others**: `(reporter = currentUser() OR watcher = currentUser()) AND (assignee != currentUser() OR assignee IS EMPTY) AND statusCategory != Done`
+- **Waiting on others**: `(reporter = currentUser() OR watcher = currentUser()) AND (assignee != currentUser() OR assignee IS EMPTY) AND statusCategory != Done AND updated >= -90d`
 - **Backlog** (`[jql] backlog`): `assignee = currentUser() AND statusCategory != Done AND (sprint IS EMPTY OR sprint NOT IN openSprints())`.
   Collapsed by default in the UI. The same health rules apply, so an aging Code Review ticket
   in the backlog still goes yellow or red.
@@ -67,13 +67,13 @@ and the queries run unchanged.
 
 | Light | Rule |
 |---|---|
-| 🔴 | Flagged / impediment, a `blocked` label, or time in current status over the column's red threshold |
+| 🔴 | Flagged / impediment, a `blocked` label, a column named like a blocked label, or time in current status over the column's red threshold |
 | 🟡 | Time in status over the yellow threshold, or an unanswered comment mentioning me |
 | 🟢 | Moving |
 | ⚪ | Stale: last poll failed, showing last-known state |
 
 - Thresholds are per column. Defaults: In Progress 3d yellow / 5d red; Code Review and UA
-  1d yellow / 2d red. Configurable.
+  3d yellow / 7d red. Configurable.
 - Time in status comes from the changelog (`expand=changelog`), fetched only for issues whose
   `updated` timestamp changed, and cached.
 - Swimlane headers and epic rows roll up to the worst card. Red cards sort to the top of a column.
@@ -207,6 +207,6 @@ goreleaser -> `ericdahl-dev/tap` cask, the same way as coolify-green:
   red = "5d"
 
 [thresholds."Code Review"]
-  yellow = "1d"
-  red = "2d"
+  yellow = "3d"
+  red = "7d"
 ```

@@ -9,6 +9,7 @@ import (
 	"time"
 
 	"github.com/ericdahl-dev/jira-green/internal/config"
+	"github.com/ericdahl-dev/jira-green/internal/model"
 )
 
 func write(t *testing.T, body string) string {
@@ -49,7 +50,7 @@ func TestLoadDefaults(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if r.Thresholds["In Progress"].Red != 5*24*time.Hour || r.Thresholds["Code Review"].Yellow != 24*time.Hour {
+	if r.Thresholds["In Progress"].Red != 5*24*time.Hour || r.Thresholds["Code Review"].Yellow != 3*24*time.Hour {
 		t.Errorf("default thresholds %+v", r.Thresholds)
 	}
 	if r.Me != "acct-me" || len(r.BlockedLabels) != 1 || r.BlockedLabels[0] != "blocked" {
@@ -220,7 +221,7 @@ func TestThresholdsMergeKeepsOtherDefaults(t *testing.T) {
 	if r.Thresholds["In Progress"].Yellow != 4*24*time.Hour || r.Thresholds["In Progress"].Red != 6*24*time.Hour {
 		t.Errorf("in progress %+v", r.Thresholds["In Progress"])
 	}
-	if r.Thresholds["UA"].Red != 2*24*time.Hour || r.Thresholds["Code Review"].Yellow != 24*time.Hour {
+	if r.Thresholds["UA"].Red != 7*24*time.Hour || r.Thresholds["Code Review"].Yellow != 3*24*time.Hour {
 		t.Errorf("defaults lost: %+v", r.Thresholds)
 	}
 }
@@ -425,14 +426,15 @@ func TestLoadValidation(t *testing.T) {
 	}
 }
 
-func TestDefaultWaitingJQLIncludesUnassigned(t *testing.T) {
+func TestDefaultWaitingJQLIncludesUnassignedAndRecent(t *testing.T) {
 	c, err := config.Load(write(t, minimal))
 	if err != nil {
 		t.Fatal(err)
 	}
 	// "assignee != currentUser()" alone drops unassigned issues: JQL's !=
-	// never matches an empty field.
-	want := `(reporter = currentUser() OR watcher = currentUser()) AND (assignee != currentUser() OR assignee IS EMPTY) AND statusCategory != Done`
+	// never matches an empty field. updated >= -90d drops tickets untouched
+	// for months.
+	want := `(reporter = currentUser() OR watcher = currentUser()) AND (assignee != currentUser() OR assignee IS EMPTY) AND statusCategory != Done AND updated >= -90d`
 	if got := c.WaitingJQL(); got != want {
 		t.Errorf("waiting JQL\n got %s\nwant %s", got, want)
 	}
@@ -702,5 +704,27 @@ func TestLoadWarnsWhenOthersCanRead(t *testing.T) {
 	}
 	if w := c.Warnings(); len(w) != 1 || !strings.Contains(w[0], "readable by others") || !strings.Contains(w[0], "chmod 600") {
 		t.Errorf("0644 config warnings %q", w)
+	}
+}
+
+func TestDefaultThresholds(t *testing.T) {
+	c, err := config.Load(write(t, minimal))
+	if err != nil {
+		t.Fatal(err)
+	}
+	r, err := c.Rules("")
+	if err != nil {
+		t.Fatal(err)
+	}
+	const day = 24 * time.Hour
+	want := map[string]model.Threshold{
+		"In Progress": {Yellow: 3 * day, Red: 5 * day},
+		"Code Review": {Yellow: 3 * day, Red: 7 * day},
+		"UA":          {Yellow: 3 * day, Red: 7 * day},
+	}
+	for col, th := range want {
+		if got := r.Thresholds[col]; got != th {
+			t.Errorf("%s default %+v, want %+v", col, got, th)
+		}
 	}
 }

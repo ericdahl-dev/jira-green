@@ -86,7 +86,7 @@ type Config struct {
 // Default lane queries, used when [jql] leaves a key unset.
 const (
 	DefaultMineJQL    = `assignee = currentUser() AND sprint IN openSprints() AND statusCategory != Done`
-	DefaultWaitingJQL = `(reporter = currentUser() OR watcher = currentUser()) AND (assignee != currentUser() OR assignee IS EMPTY) AND statusCategory != Done`
+	DefaultWaitingJQL = `(reporter = currentUser() OR watcher = currentUser()) AND (assignee != currentUser() OR assignee IS EMPTY) AND statusCategory != Done AND updated >= -90d`
 	DefaultBacklogJQL = `assignee = currentUser() AND statusCategory != Done AND (sprint IS EMPTY OR sprint NOT IN openSprints())`
 	DefaultDoneJQL    = `assignee = currentUser() AND sprint IN openSprints() AND statusCategory = Done`
 )
@@ -94,8 +94,8 @@ const (
 func defaultThresholds() map[string]Age {
 	return map[string]Age{
 		"In Progress": {Yellow: "3d", Red: "5d"},
-		"Code Review": {Yellow: "1d", Red: "2d"},
-		"UA":          {Yellow: "1d", Red: "2d"},
+		"Code Review": {Yellow: "3d", Red: "7d"},
+		"UA":          {Yellow: "3d", Red: "7d"},
 	}
 }
 

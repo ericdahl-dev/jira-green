@@ -191,7 +191,7 @@ flagged_field = "customfield_10021"              # your site's Flagged field; fo
 
 [jql]
 mine    = 'assignee = currentUser() AND sprint IN openSprints() AND statusCategory != Done'
-waiting = '(reporter = currentUser() OR watcher = currentUser()) AND (assignee != currentUser() OR assignee IS EMPTY) AND statusCategory != Done'
+waiting = '(reporter = currentUser() OR watcher = currentUser()) AND (assignee != currentUser() OR assignee IS EMPTY) AND statusCategory != Done AND updated >= -90d'
 backlog = 'assignee = currentUser() AND statusCategory != Done AND (sprint IS EMPTY OR sprint NOT IN openSprints())'
 done    = 'assignee = currentUser() AND sprint IN openSprints() AND statusCategory = Done'
 
@@ -200,12 +200,12 @@ yellow = "3d"
 red    = "5d"
 
 [thresholds."Code Review"]
-yellow = "1d"
-red    = "2d"
+yellow = "3d"
+red    = "7d"
 
 [thresholds."UA"]
-yellow = "1d"
-red    = "2d"
+yellow = "3d"
+red    = "7d"
 
 [[webhooks]]
 url    = "https://hooks.example.com/jira-green"  # http or https
@@ -249,8 +249,10 @@ others alone. Either level can be left out. A table with neither disables that c
 
 ### `blocked_labels`
 
-Labels that turn a card red, matched case-insensitively. Leave the key out for `["blocked"]`.
-Set `blocked_labels = []` for none.
+Labels that turn a card red, matched case-insensitively. A card whose board column has one of
+these names is red too, so a "Blocked" column works with the default. Leave the key out for
+`["blocked"]`. Set `blocked_labels = []` for none: that turns off both the label and the column
+match.
 
 ### `muted`
 
@@ -317,7 +319,7 @@ Each lane is one JQL query. Top to bottom:
 | Lane | Default query finds | Shown |
 |---|---|---|
 | **Mine** | issues assigned to you in an open sprint | always |
-| **Waiting on others** | issues you reported or watch that are assigned to someone else, or to no one | always |
+| **Waiting on others** | open issues you reported or watch, updated in the last 90 days, that are assigned to someone else or to no one | always |
 | **Backlog** | issues assigned to you outside the open sprints | collapsed; `b` expands it |
 | **Done this sprint** | your issues in an open sprint that are done | hidden; `d` shows it |
 
@@ -337,7 +339,7 @@ column (Done, by convention) is hidden while Done is hidden, unless an open card
 
 | Light | Meaning |
 |---|---|
-| 🔴 Red | Flagged, has a blocked label, or has been in its column past the red threshold |
+| 🔴 Red | Flagged, has a blocked label, sits in a column named like a blocked label, or has been in its column past the red threshold |
 | 🟡 Yellow | Past the column's yellow threshold, or a comment mentions you and you have not replied |
 | ⚪ Stale | The last poll failed, or the card's data is incomplete |
 | 🟢 Green | Moving |
@@ -355,7 +357,8 @@ separate from the reasons for its light.
 
 **Age** is time in the current status, read from the changelog. The changelog is fetched again
 only when an issue changes. A Backlog card in a column with no threshold (To Do, by default)
-skips the changelog and uses its created date instead, since age there colors nothing.
+skips the changelog and uses its created date instead, since age there colors nothing. Done
+cards skip the changelog too, so they show no age.
 
 **Epic progress.** The list view's epic headers show `N/M done`: the epic's child issues in the
 Done status category, out of all of them. The counts come from Jira's approximate-count search,
@@ -405,7 +408,7 @@ jira-green POSTs a JSON event when a card has stayed red for `stuck_alert_after`
   "summary": "Solr pagination breaks on page 11",
   "status": "In Review",
   "url": "<the issue's link on your Jira site>",
-  "reasons": ["flagged", "in Code Review 6d (red at 2d)"],
+  "reasons": ["flagged", "in Code Review 8d (red at 7d)"],
   "red_for": "2h",
   "at": "2026-09-30T14:05:00Z",
   "incomplete": true,

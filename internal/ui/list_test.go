@@ -192,3 +192,12 @@ func TestListEpicProgress(t *testing.T) {
 		}
 	}
 }
+
+func TestListDoneCardShowsNoAge(t *testing.T) {
+	cards := []model.Card{card("ABC-1900", "Shipped thing", "Done", model.LaneDone, model.Green, 0, "", "Me")}
+	ls := lines(ui.RenderList(model.ByEpic(cards), nil, -1, 80, ui.ListOptions{}))
+	got := ls[lineWith(ls, "ABC-1900")]
+	if strings.Contains(got, "0m") || !strings.Contains(got, "Done         ") {
+		t.Errorf("Done card line %q, want a blank age", got)
+	}
+}

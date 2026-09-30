@@ -142,3 +142,28 @@ func TestEvaluateDecodeErrorsAreStale(t *testing.T) {
 		t.Errorf("flagged + decode errors: light %v, want red", c.Light)
 	}
 }
+
+func TestEvaluateBlockedColumnIsRed(t *testing.T) {
+	c := model.Evaluate(model.Issue{Key: "ABC-1"}, "Blocked", model.LaneMine, rules(), t0, false)
+	if c.Light != model.Red || !slices.Contains(c.Reasons, "column Blocked") {
+		t.Errorf("light %v reasons %v, want red with %q", c.Light, c.Reasons, "column Blocked")
+	}
+}
+
+func TestEvaluateBlockedColumnOffWithNoBlockedLabels(t *testing.T) {
+	r := rules()
+	r.BlockedLabels = []string{}
+	c := model.Evaluate(model.Issue{Key: "ABC-1"}, "Blocked", model.LaneMine, r, t0, false)
+	if c.Light != model.Green || len(c.Reasons) != 0 {
+		t.Errorf("light %v reasons %v, want green with none", c.Light, c.Reasons)
+	}
+}
+
+func TestEvaluateBlockedColumnMatchesCaseInsensitively(t *testing.T) {
+	r := rules()
+	r.BlockedLabels = []string{"ON HOLD"}
+	c := model.Evaluate(model.Issue{Key: "ABC-1"}, "On Hold", model.LaneMine, r, t0, false)
+	if c.Light != model.Red || !slices.Contains(c.Reasons, "column On Hold") {
+		t.Errorf("light %v reasons %v, want red with %q", c.Light, c.Reasons, "column On Hold")
+	}
+}

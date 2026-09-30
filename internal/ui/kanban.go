@@ -143,26 +143,31 @@ func marker(selected bool) string {
 	return " "
 }
 
-// namesAssignee reports whether a view names c's assignee: Mine and Backlog
-// cards are mine.
+// namesAssignee reports whether a view names c's assignee. Only Waiting cards
+// belong to someone else; Mine, Backlog, and Done are all mine.
 func namesAssignee(c model.Card) bool {
-	return c.Lane != model.LaneMine && c.Lane != model.LaneBacklog && c.AssigneeName != ""
+	return c.Lane == model.LaneWaiting && c.AssigneeName != ""
 }
 
 // cardMeta is the assignee when the card is not mine, then ageFlag.
 func cardMeta(c model.Card) string {
 	if namesAssignee(c) {
-		return "@" + firstWord(c.AssigneeName) + " " + ageFlag(c)
+		return strings.TrimSpace("@" + firstWord(c.AssigneeName) + " " + ageFlag(c))
 	}
 	return ageFlag(c)
 }
 
-// ageFlag is the card's age in status, with a flag mark when flagged.
+// ageFlag is the card's age in status, with a flag mark when flagged. A Done
+// card has no age: the poller skips its changelog, so Age would read 0m.
 func ageFlag(c model.Card) string {
-	if c.Flagged {
-		return model.FormatAge(c.Age) + " ⚑"
+	var parts []string
+	if c.Lane != model.LaneDone {
+		parts = append(parts, model.FormatAge(c.Age))
 	}
-	return model.FormatAge(c.Age)
+	if c.Flagged {
+		parts = append(parts, "⚑")
+	}
+	return strings.Join(parts, " ")
 }
 
 func firstWord(s string) string {
