@@ -62,11 +62,15 @@ func (c *Client) do(ctx context.Context, method, path string, body, out any) err
 	defer func() { _ = resp.Body.Close() }()
 	if resp.StatusCode >= 300 {
 		b, _ := io.ReadAll(io.LimitReader(resp.Body, 2048))
+		retry := parseRetryAfter(resp.Header.Get("Retry-After"))
+		if retry == 0 && resp.StatusCode == http.StatusTooManyRequests {
+			retry = defaultRetryAfter
+		}
 		return &APIError{
 			Status:     resp.StatusCode,
 			Messages:   errorMessages(b),
 			Body:       strings.TrimSpace(string(b)),
-			RetryAfter: parseRetryAfter(resp.Header.Get("Retry-After")),
+			RetryAfter: retry,
 		}
 	}
 	if out == nil || resp.StatusCode == http.StatusNoContent {

@@ -66,9 +66,18 @@ func IsAuth(err error) bool {
 	return errors.As(err, &ae) && ae.Status == http.StatusUnauthorized
 }
 
+// defaultRetryAfter is the backoff for a 429 with no usable Retry-After.
+const defaultRetryAfter = 60 * time.Second
+
+// parseRetryAfter reads a Retry-After header: whole seconds or an HTTP-date.
+// It returns 0 for a missing, unparseable, or negative value.
 func parseRetryAfter(h string) time.Duration {
+	h = strings.TrimSpace(h)
+	var d time.Duration
 	if n, err := strconv.Atoi(h); err == nil {
-		return time.Duration(n) * time.Second
+		d = time.Duration(n) * time.Second
+	} else if t, err := http.ParseTime(h); err == nil {
+		d = time.Until(t)
 	}
-	return 0
+	return max(d, 0)
 }

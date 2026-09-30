@@ -139,3 +139,50 @@ func TestAPIErrorTruncatesLongMessages(t *testing.T) {
 		t.Errorf("truncation split a rune: %q", got)
 	}
 }
+
+func retryAfter(t *testing.T, status int, header string, set bool) time.Duration {
+	t.Helper()
+	c := newTest(t, func(w http.ResponseWriter, r *http.Request) {
+		if set {
+			w.Header().Set("Retry-After", header)
+		}
+		w.WriteHeader(status)
+	})
+	_, err := c.Myself(context.Background())
+	var ae *jira.APIError
+	if !errors.As(err, &ae) {
+		t.Fatalf("got %v", err)
+	}
+	return ae.RetryAfter
+}
+
+func TestRetryAfterTrimsWhitespace(t *testing.T) {
+	if got := retryAfter(t, http.StatusTooManyRequests, " 30 ", true); got != 30*time.Second {
+		t.Errorf("got %v", got)
+	}
+}
+
+func TestRetryAfterHTTPDate(t *testing.T) {
+	date := time.Now().Add(120 * time.Second).UTC().Format(http.TimeFormat)
+	if got := retryAfter(t, http.StatusTooManyRequests, date, true); got <= 110*time.Second || got > 121*time.Second {
+		t.Errorf("got %v, want about 120s", got)
+	}
+}
+
+func TestRetryAfterMissingOn429DefaultsToMinute(t *testing.T) {
+	if got := retryAfter(t, http.StatusTooManyRequests, "", false); got != 60*time.Second {
+		t.Errorf("got %v, want 60s", got)
+	}
+	if got := retryAfter(t, http.StatusServiceUnavailable, "", false); got != 0 {
+		t.Errorf("503 without header: got %v, want 0", got)
+	}
+}
+
+func TestRetryAfterUnusableOn429DefaultsToMinute(t *testing.T) {
+	past := time.Now().Add(-time.Hour).UTC().Format(http.TimeFormat)
+	for _, h := range []string{"soon", "-5", "1.5", past} {
+		if got := retryAfter(t, http.StatusTooManyRequests, h, true); got != 60*time.Second {
+			t.Errorf("Retry-After %q: got %v, want 60s", h, got)
+		}
+	}
+}
