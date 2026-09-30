@@ -29,6 +29,9 @@ type fake struct {
 	err           error // returned by Search when set
 	commentErr    error // returned by Comments when set
 	changelogErr  map[string]error
+	// searching, when set, makes Search signal it and then block until ctx
+	// is done, returning ctx.Err().
+	searching chan struct{}
 }
 
 func newFake() *fake {
@@ -52,7 +55,12 @@ func (f *fake) Myself(context.Context) (jira.User, error) {
 	return jira.User{AccountID: "acct-me"}, nil
 }
 
-func (f *fake) Search(_ context.Context, jql, _ string) ([]model.Issue, error) {
+func (f *fake) Search(ctx context.Context, jql, _ string) ([]model.Issue, error) {
+	if f.searching != nil {
+		f.searching <- struct{}{}
+		<-ctx.Done()
+		return nil, ctx.Err()
+	}
 	f.mu.Lock()
 	defer f.mu.Unlock()
 	if f.err != nil {
@@ -531,5 +539,31 @@ func TestRefreshAfterStartExitedDoesNotBlock(t *testing.T) {
 	case <-done:
 	case <-time.After(time.Second):
 		t.Fatal("Refresh blocked after Start exited")
+	}
+}
+
+func TestStartCancelledMidPollEmitsNoCanceledSnapshot(t *testing.T) {
+	// The emit select races out against ctx.Done, so repeat to catch it.
+	for range 20 {
+		c := cfg(t, "")
+		f := newFake()
+		f.searching = make(chan struct{}, 1)
+		now := t0
+		p := newPoller(c, f, &now)
+		recordWaits(p)
+		ctx, cancel := context.WithCancel(context.Background())
+
+		snaps := p.Start(ctx)
+		<-f.searching
+		cancel()
+		for {
+			s, ok := recv(t, snaps)
+			if !ok {
+				break
+			}
+			if errors.Is(s.Err, context.Canceled) {
+				t.Fatalf("emitted a snapshot carrying context.Canceled: %+v", s)
+			}
+		}
 	}
 }

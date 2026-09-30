@@ -230,6 +230,9 @@ func (p *Poller) Start(ctx context.Context) <-chan Snapshot {
 		defer close(out)
 		for {
 			snap := p.PollOnce(ctx)
+			if ctx.Err() != nil {
+				return // the poll was cut short; its error is not news
+			}
 			select {
 			case out <- snap:
 			case <-ctx.Done():
