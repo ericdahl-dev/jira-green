@@ -34,6 +34,11 @@ type OpenManageMsg struct {
 	Width, Height int
 }
 
+// WebhookFailedMsg reports a stuck-card webhook that could not be
+// delivered. Main sends it; Err must already be safe to show (no secret, no
+// URL query).
+type WebhookFailedMsg struct{ Err error }
+
 // openFailedMsg reports that the browser could not be launched.
 type openFailedMsg struct{ err error }
 
@@ -119,10 +124,9 @@ func (d Dashboard) Update(msg tea.Msg) (Dashboard, tea.Cmd) {
 	case ClosePickerMsg:
 		d.picker = nil
 	case openFailedMsg:
-		d.flashSeq++
-		d.flash = "⚠ open failed: " + msg.err.Error()
-		seq := d.flashSeq
-		return d, tea.Tick(flashFor, func(time.Time) tea.Msg { return flashClearMsg{seq} })
+		return d.showFlash("⚠ open failed: " + msg.err.Error())
+	case WebhookFailedMsg:
+		return d.showFlash("⚠ webhook failed: " + msg.Err.Error())
 	case flashClearMsg:
 		if msg.seq == d.flashSeq {
 			d.flash = ""
@@ -237,6 +241,15 @@ func (d *Dashboard) refreshDetail() {
 			return
 		}
 	}
+}
+
+// showFlash shows text before the status line until the next key press or
+// flashFor.
+func (d Dashboard) showFlash(text string) (Dashboard, tea.Cmd) {
+	d.flashSeq++
+	d.flash = text
+	seq := d.flashSeq
+	return d, tea.Tick(flashFor, func(time.Time) tea.Msg { return flashClearMsg{seq} })
 }
 
 // open is a command that opens c in the browser, or nil when c has no URL.

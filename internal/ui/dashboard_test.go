@@ -664,3 +664,13 @@ func TestHiddenBacklogRowShowsItsLight(t *testing.T) {
 		t.Errorf("hidden Backlog row lacks the red light:\n%s", v)
 	}
 }
+
+func TestWebhookFailureFlashes(t *testing.T) {
+	d, tick := loaded(t, "kanban").Update(ui.WebhookFailedMsg{Err: errors.New("hooks.example.com: 500")})
+	if got := status(d); !strings.HasPrefix(got, "⚠ webhook failed: hooks.example.com: 500  ·  ") {
+		t.Fatalf("status %q", got)
+	}
+	if tick == nil {
+		t.Error("no timer clears the flash")
+	}
+}

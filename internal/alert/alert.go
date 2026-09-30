@@ -10,10 +10,13 @@ import (
 	"crypto/sha256"
 	"encoding/hex"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"log/slog"
 	"net/http"
+	"net/url"
+	"strings"
 	"time"
 
 	"github.com/ericdahl-dev/jira-green/internal/config"
@@ -58,28 +61,45 @@ func New(hooks []config.Webhook) *Dispatcher {
 }
 
 // Dispatch POSTs evt to all configured webhooks, giving up when ctx is done.
-// Failures are logged at debug level but never returned: a dead endpoint
-// must not interrupt polling.
-func (d *Dispatcher) Dispatch(ctx context.Context, evt Event) {
+// It tries every webhook and returns nil or one error naming each failed
+// webhook by host only ("hooks.example.com: 500"): never the path, query,
+// or secret, so the error is safe to show on screen.
+func (d *Dispatcher) Dispatch(ctx context.Context, evt Event) error {
 	if len(d.hooks) == 0 {
-		return
+		return nil
 	}
 	body, err := json.Marshal(evt)
 	if err != nil {
-		slog.Debug("webhook marshal failed", "err", err)
-		return
+		return fmt.Errorf("webhook payload: %w", err)
 	}
+	var failed []string
 	for _, wh := range d.hooks {
 		if err := d.post(ctx, wh, body); err != nil {
-			slog.Debug("webhook POST failed", "url", wh.URL, "err", err)
+			slog.Debug("webhook POST failed", "host", host(wh.URL), "err", err)
+			failed = append(failed, host(wh.URL)+": "+err.Error())
 		}
 	}
+	if len(failed) > 0 {
+		return errors.New(strings.Join(failed, "; "))
+	}
+	return nil
 }
 
+// host is a webhook URL's host, the only part of it an error may show.
+func host(raw string) string {
+	u, err := url.Parse(raw)
+	if err != nil || u.Host == "" {
+		return "invalid webhook url"
+	}
+	return u.Host
+}
+
+// post sends one request. Its errors never quote the URL: a url.Error is
+// unwrapped to its cause, and a bad status is just the code.
 func (d *Dispatcher) post(ctx context.Context, wh config.Webhook, body []byte) error {
 	req, err := http.NewRequestWithContext(ctx, http.MethodPost, wh.URL, bytes.NewReader(body))
 	if err != nil {
-		return fmt.Errorf("building request: %w", err)
+		return errors.New("invalid url")
 	}
 	req.Header.Set("Content-Type", "application/json")
 
@@ -91,6 +111,10 @@ func (d *Dispatcher) post(ctx context.Context, wh config.Webhook, body []byte) e
 
 	resp, err := d.client.Do(req)
 	if err != nil {
+		var ue *url.Error
+		if errors.As(err, &ue) {
+			return ue.Err
+		}
 		return err
 	}
 	defer func() {
@@ -99,7 +123,7 @@ func (d *Dispatcher) post(ctx context.Context, wh config.Webhook, body []byte) e
 		_ = resp.Body.Close()
 	}()
 	if resp.StatusCode >= 400 {
-		return fmt.Errorf("server returned %d", resp.StatusCode)
+		return fmt.Errorf("%d", resp.StatusCode)
 	}
 	return nil
 }

@@ -9,6 +9,8 @@ import (
 	"io"
 	"net/http"
 	"net/http/httptest"
+	"net/url"
+	"strings"
 	"sync"
 	"testing"
 	"time"
@@ -35,7 +37,7 @@ func TestDispatchPostsSignedJSON(t *testing.T) {
 	defer srv.Close()
 
 	d := alert.New([]config.Webhook{{URL: srv.URL, Secret: "shh"}})
-	d.Dispatch(context.Background(), alert.Event{
+	err := d.Dispatch(context.Background(), alert.Event{
 		Type:    alert.TypeTicketStuck,
 		Key:     "ABC-1",
 		Summary: "Fix the widget",
@@ -45,6 +47,9 @@ func TestDispatchPostsSignedJSON(t *testing.T) {
 		RedFor:  "2h",
 		At:      time.Date(2026, 9, 30, 12, 0, 0, 0, time.UTC),
 	})
+	if err != nil {
+		t.Errorf("dispatch: %v", err)
+	}
 
 	select {
 	case <-received:
@@ -78,7 +83,9 @@ func TestDispatchWithoutSecretSendsNoSignature(t *testing.T) {
 	}))
 	defer srv.Close()
 
-	alert.New([]config.Webhook{{URL: srv.URL}}).Dispatch(context.Background(), alert.Event{Type: alert.TypeTicketStuck})
+	if err := alert.New([]config.Webhook{{URL: srv.URL}}).Dispatch(context.Background(), alert.Event{Type: alert.TypeTicketStuck}); err != nil {
+		t.Errorf("dispatch: %v", err)
+	}
 	select {
 	case sig := <-done:
 		if sig != "" {
@@ -89,17 +96,32 @@ func TestDispatchWithoutSecretSendsNoSignature(t *testing.T) {
 	}
 }
 
-func TestDispatchSurvivesFailingEndpoint(t *testing.T) {
+func TestDispatchReportsFailureWithoutSecrets(t *testing.T) {
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.WriteHeader(http.StatusInternalServerError)
 	}))
 	defer srv.Close()
-	// Must not panic and must not block.
-	alert.New([]config.Webhook{{URL: srv.URL}}).Dispatch(context.Background(), alert.Event{Type: alert.TypeTicketStuck})
+	u, _ := url.Parse(srv.URL)
+	hooks := []config.Webhook{{URL: srv.URL + "/hook?token=hunter2", Secret: "shh"}}
+	err := alert.New(hooks).Dispatch(context.Background(), alert.Event{Type: alert.TypeTicketStuck})
+	if err == nil {
+		t.Fatal("a 500 was not reported")
+	}
+	msg := err.Error()
+	if msg != u.Host+": 500" {
+		t.Errorf("error %q, want %q", msg, u.Host+": 500")
+	}
+	for _, leak := range []string{"hunter2", "token", "shh", "/hook"} {
+		if strings.Contains(msg, leak) {
+			t.Errorf("error %q leaks %q", msg, leak)
+		}
+	}
 }
 
 func TestDispatchNoHooksIsNoop(t *testing.T) {
-	alert.New(nil).Dispatch(context.Background(), alert.Event{Type: alert.TypeTicketStuck})
+	if err := alert.New(nil).Dispatch(context.Background(), alert.Event{Type: alert.TypeTicketStuck}); err != nil {
+		t.Errorf("no hooks: %v", err)
+	}
 }
 
 func TestDispatchCancelledContextSendsNothing(t *testing.T) {
@@ -111,7 +133,9 @@ func TestDispatchCancelledContextSendsNothing(t *testing.T) {
 
 	ctx, cancel := context.WithCancel(context.Background())
 	cancel()
-	alert.New([]config.Webhook{{URL: srv.URL}}).Dispatch(ctx, alert.Event{Type: alert.TypeTicketStuck})
+	if err := alert.New([]config.Webhook{{URL: srv.URL}}).Dispatch(ctx, alert.Event{Type: alert.TypeTicketStuck}); err == nil {
+		t.Error("a cancelled dispatch reported success")
+	}
 	select {
 	case <-hit:
 		t.Fatal("a cancelled context still delivered the webhook")

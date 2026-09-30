@@ -183,6 +183,8 @@ type harness struct {
 	now       time.Time
 	mu        sync.Mutex
 	events    []alert.Event
+	// dispatchErr is what the fake dispatch returns.
+	dispatchErr error
 }
 
 func newHarness(t *testing.T) *harness {
@@ -201,10 +203,11 @@ func newHarness(t *testing.T) *harness {
 		api:     h.api,
 		snaps:   h.snaps,
 		refresh: func() { h.refreshes++ },
-		dispatch: func(_ context.Context, e alert.Event) {
+		dispatch: func(_ context.Context, e alert.Event) error {
 			h.mu.Lock()
 			defer h.mu.Unlock()
 			h.events = append(h.events, e)
+			return h.dispatchErr
 		},
 		now:     func() time.Time { return h.now },
 		openURL: func(string) error { return nil },
@@ -311,10 +314,26 @@ func TestStuckCardIsDispatched(t *testing.T) {
 	h := newHarness(t)
 	h.send(poller.Snapshot{Columns: testCols, Cards: []model.Card{redCard()}, At: h.now})
 	h.now = h.now.Add(2 * time.Hour) // the default stuck_alert_after
-	h.send(poller.Snapshot{Columns: testCols, Cards: []model.Card{redCard()}, At: h.now})
+	msgs(h.send(poller.Snapshot{Columns: testCols, Cards: []model.Card{redCard()}, At: h.now}))
 	got := h.dispatched(1)
 	if len(got) != 1 || got[0].Key != "ABC-1836" || got[0].Type != alert.TypeTicketStuck {
 		t.Fatalf("dispatched %+v", got)
+	}
+}
+
+func TestWebhookFailureReachesDashboard(t *testing.T) {
+	h := newHarness(t)
+	h.dispatchErr = errors.New("hooks.example.com: 500")
+	h.send(tea.WindowSizeMsg{Width: 200, Height: 40})
+	h.send(poller.Snapshot{Columns: testCols, Cards: []model.Card{redCard()}, At: h.now})
+	h.now = h.now.Add(2 * time.Hour)
+	failed, ok := has[ui.WebhookFailedMsg](h.send(poller.Snapshot{Columns: testCols, Cards: []model.Card{redCard()}, At: h.now}))
+	if !ok {
+		t.Fatal("a failed dispatch sent no WebhookFailedMsg")
+	}
+	h.send(failed)
+	if v := h.m.View(); !strings.Contains(v, "webhook failed: hooks.example.com: 500") {
+		t.Errorf("status line lacks the failure:\n%s", v)
 	}
 }
 
@@ -324,8 +343,7 @@ func TestStaleSnapshotPausesStuckAlerts(t *testing.T) {
 	h.now = h.now.Add(2 * time.Hour)
 	stale := redCard()
 	stale.Light = model.Worst(stale.Light, model.Stale)
-	h.send(poller.Snapshot{Columns: testCols, Cards: []model.Card{stale}, At: h.now.Add(-2 * time.Hour), Err: errors.New("jira: HTTP 502")})
-	time.Sleep(20 * time.Millisecond) // a dispatch goroutine would have run
+	msgs(h.send(poller.Snapshot{Columns: testCols, Cards: []model.Card{stale}, At: h.now.Add(-2 * time.Hour), Err: errors.New("jira: HTTP 502")}))
 	if got := h.dispatched(0); len(got) != 0 {
 		t.Fatalf("a stale poll fired %+v", got)
 	}

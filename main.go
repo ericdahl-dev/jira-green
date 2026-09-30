@@ -127,7 +127,7 @@ type deps struct {
 	api      transitionAPI
 	snaps    <-chan poller.Snapshot
 	refresh  func() // poller.Refresh
-	dispatch func(context.Context, alert.Event)
+	dispatch func(context.Context, alert.Event) error
 	now      func() time.Time
 	openURL  func(string) error // ui.OpenBrowser
 }
@@ -224,16 +224,29 @@ func (m app) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	case poller.Snapshot:
 		snap := msg
 		m.loaded = true
+		cmds := []tea.Cmd{waitForSnapshot(m.snaps)}
 		for _, evt := range m.tracker.ObserveSnapshot(snap.Cards, snap.Err, m.now()) {
-			go m.dispatch(m.ctx, evt)
+			cmds = append(cmds, m.sendAlert(evt))
 		}
 		var cmd tea.Cmd
 		m.dashboard, cmd = m.dashboard.Update(snap)
-		return m, tea.Batch(cmd, waitForSnapshot(m.snaps))
+		return m, tea.Batch(append(cmds, cmd)...)
 	}
 	var cmd tea.Cmd
 	m.dashboard, cmd = m.dashboard.Update(msg)
 	return m, cmd
+}
+
+// sendAlert posts evt to the webhooks off the UI goroutine. A failure comes
+// back as ui.WebhookFailedMsg, which flashes on the status line.
+func (m app) sendAlert(evt alert.Event) tea.Cmd {
+	dispatch, ctx := m.dispatch, m.ctx
+	return func() tea.Msg {
+		if err := dispatch(ctx, evt); err != nil {
+			return ui.WebhookFailedMsg{Err: err}
+		}
+		return nil
+	}
 }
 
 func (m app) View() string {

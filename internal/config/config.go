@@ -165,6 +165,12 @@ func (c *Config) validate() error {
 	if c.Jira.BoardID <= 0 {
 		return errors.New("jira.board_id is required")
 	}
+	for i, wh := range c.Webhooks {
+		// The URL is not quoted back: its query may hold a token.
+		if u, err := url.Parse(wh.URL); err != nil || (u.Scheme != "https" && u.Scheme != "http") || u.Host == "" {
+			return fmt.Errorf("webhooks[%d].url must be an http or https URL", i)
+		}
+	}
 	_, err := c.Rules("")
 	return err
 }

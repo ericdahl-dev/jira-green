@@ -413,12 +413,21 @@ func TestLoadValidation(t *testing.T) {
 		{"hostless site", "[jira]\n  site = \"example.atlassian.net\"\n  email = \"me@example.com\"\n  board_id = 7\n", "jira.site"},
 		{"yellow not below red", minimal + "\n[thresholds.\"UA\"]\n  yellow = \"2d\"\n  red = \"1d\"\n", "yellow must be less than red"},
 		{"yellow equals red", minimal + "\n[thresholds.\"UA\"]\n  yellow = \"1d\"\n  red = \"24h\"\n", "yellow must be less than red"},
+		{"empty webhook url", minimal + "\n[[webhooks]]\n  url = \"https://hooks.example.com/a\"\n[[webhooks]]\n  secret = \"s\"\n", "webhooks[1].url"},
+		{"non-http webhook", minimal + "\n[[webhooks]]\n  url = \"ftp://hooks.example.com/a\"\n", "webhooks[0].url"},
+		{"hostless webhook", minimal + "\n[[webhooks]]\n  url = \"hooks.example.com/a\"\n", "webhooks[0].url"},
 	}
 	for _, c := range cases {
 		_, err := config.Load(write(t, c.body))
 		if err == nil || !strings.Contains(err.Error(), c.want) {
 			t.Errorf("%s: want error containing %q, got %v", c.name, c.want, err)
 		}
+	}
+}
+
+func TestLoadAcceptsHTTPWebhook(t *testing.T) {
+	if _, err := config.Load(write(t, minimal+"\n[[webhooks]]\n  url = \"http://localhost:8080/hook\"\n")); err != nil {
+		t.Errorf("plain http webhook rejected: %v", err)
 	}
 }
 
