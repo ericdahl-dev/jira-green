@@ -19,7 +19,7 @@ func TestParseAge(t *testing.T) {
 			t.Errorf("ParseAge(%q) = %v, %v; want %v", in, got, err, want)
 		}
 	}
-	for _, bad := range []string{"", "d", "3x", "-1d", "-1h", "0d"} {
+	for _, bad := range []string{"", "d", "3x", "-1d", "-1h", "0d", "0h", "0", "0d0h"} {
 		if _, err := ParseAge(bad); err == nil {
 			t.Errorf("ParseAge(%q) should fail", bad)
 		}

@@ -18,7 +18,7 @@ type Threshold struct {
 var dayPart = regexp.MustCompile(`^(\d+)d`)
 
 // ParseAge parses a duration that may start with a whole number of days,
-// e.g. "3d", "1d6h", "12h", "90m".
+// e.g. "3d", "1d6h", "12h", "90m". A zero or negative duration is an error.
 func ParseAge(s string) (time.Duration, error) {
 	s = strings.TrimSpace(s)
 	in := s
@@ -40,8 +40,9 @@ func ParseAge(s string) (time.Duration, error) {
 			return 0, fmt.Errorf("negative duration %q", s)
 		}
 		total += d
-	} else if total == 0 {
-		return 0, fmt.Errorf("bad duration %q", in)
+	}
+	if total == 0 {
+		return 0, fmt.Errorf("zero duration %q; omit the key instead", in)
 	}
 	return total, nil
 }
