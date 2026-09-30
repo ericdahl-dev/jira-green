@@ -42,7 +42,7 @@ func NewManage(groups []model.EpicGroup, muted []string, setMuted func(key strin
 	for _, g := range groups {
 		m.rows = append(m.rows, manageRow{key: g.Key, label: g.Name})
 		for _, c := range g.Cards {
-			m.rows = append(m.rows, manageRow{key: c.Key, label: fmt.Sprintf("%s  %s", c.Key, c.Summary), indent: true})
+			m.rows = append(m.rows, manageRow{key: c.Key, label: fmt.Sprintf("%s  %s", c.Key, c.DisplaySummary()), indent: true})
 		}
 	}
 	// The poller drops muted issues and epics, so they are not in groups:

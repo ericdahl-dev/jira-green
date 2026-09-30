@@ -54,3 +54,20 @@ func TestDetailSparseCard(t *testing.T) {
 		}
 	}
 }
+
+func TestSubtaskShowsItsStory(t *testing.T) {
+	c := card("ABC-13", "Write tests", "To Do", model.LaneMine, model.Green, day, "", "Me")
+	c.ParentKey, c.ParentSummary = "ABC-12", "Checkout flow"
+	cs := []model.Card{c}
+	views := map[string]string{
+		"kanban": ui.RenderKanban(model.Layout(fxCols, cs, false), ui.Cursor{}, 160, ui.KanbanOptions{}),
+		"list":   ui.RenderList(model.ByEpic(cs), map[string]bool{}, -1, 160, ui.ListOptions{}),
+		"detail": ui.RenderDetail(c, 160),
+		"manage": ui.NewManage(model.ByEpic(cs), nil, nil).View(),
+	}
+	for name, v := range views {
+		if !strings.Contains(v, "ABC-12 › Write tests") {
+			t.Errorf("%s:\n%s", name, v)
+		}
+	}
+}

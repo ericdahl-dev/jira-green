@@ -100,7 +100,7 @@ func kanbanLines(b model.Board, cur Cursor, width int, opt KanbanOptions) ([]str
 				if row < len(cell) {
 					c := cell[row]
 					l[0] = fmt.Sprintf("%s%s %s", marker(selected), c.Light.Emoji(), c.Key)
-					l[1] = "  " + truncate(c.Summary, colW-3)
+					l[1] = "  " + truncate(c.DisplaySummary(), colW-3)
 					l[2] = "  " + truncate(cardMeta(c), colW-3)
 				}
 				for i := range l {

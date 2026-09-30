@@ -14,7 +14,7 @@ func RenderDetail(c model.Card, width int) string {
 	add := func(s ...string) { ls = append(ls, s...) }
 
 	add(headStyle.Render(fmt.Sprintf("%s %s  %s", c.Light.Emoji(), c.Key, c.Column)), "")
-	add(strings.Split(ansi.Wrap(c.Summary, width, ""), "\n")...)
+	add(strings.Split(ansi.Wrap(c.DisplaySummary(), width, ""), "\n")...)
 	add("")
 
 	field := func(name, v string) { add(fmt.Sprintf("%-9s %s", name, v)) }

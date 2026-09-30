@@ -122,5 +122,5 @@ func cardLine(c model.Card, cw colWidths, width int) string {
 		who = " @" + firstWord(c.AssigneeName)
 	}
 	prefix := fmt.Sprintf("    %s %s %s %s ", c.Light.Emoji(), pad(c.Key, cw.key), pad(c.Column, 12), pad(ageFlag(c), cw.age))
-	return prefix + truncate(c.Summary+who, max(10, width-1-lipgloss.Width(prefix)))
+	return prefix + truncate(c.DisplaySummary()+who, max(10, width-1-lipgloss.Width(prefix)))
 }
