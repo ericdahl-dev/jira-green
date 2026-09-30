@@ -135,7 +135,7 @@ internal/alert       Webhook signing and dedupe
 ## Error handling
 
 - Poll failure: keep last-known cards, mark them ⚪ stale, show a one-line error bar.
-- 401/403: stop polling and show "token rejected - check token_command" instead of retrying.
+- 401: stop polling (a 403 is usually per-issue permission: show the error, keep polling) and show "token rejected - check token_command" instead of retrying.
 - 429: back off according to `Retry-After`.
 - Failed transition: show Jira's error text in the picker; the card stays where it was.
 

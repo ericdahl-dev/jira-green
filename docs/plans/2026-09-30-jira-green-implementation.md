@@ -1504,7 +1504,7 @@ func (e *APIError) Error() string {
 	return fmt.Sprintf("jira: HTTP %d: %s", e.Status, e.Body)
 }
 
-// IsAuth reports whether err is a 401/403 — polling should stop, not retry.
+// IsAuth reports whether err is a 401 — polling should stop, not retry. A 403 does not stop polling.
 func IsAuth(err error) bool {
 	var ae *APIError
 	return errors.As(err, &ae) && (ae.Status == 401 || ae.Status == 403)
