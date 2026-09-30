@@ -32,3 +32,22 @@ func TestUnansweredMention(t *testing.T) {
 		}
 	}
 }
+
+func TestUnansweredMentionUnknownMe(t *testing.T) {
+	at := func(h int) time.Time { return t0.Add(time.Duration(h) * time.Hour) }
+	cases := []struct {
+		name string
+		cs   []Comment
+	}{
+		{"empty mention ID does not match", []Comment{{AuthorID: "acct-x", Created: at(1), Mentions: []string{""}}}},
+		{"empty author ID is not my reply", []Comment{
+			{AuthorID: "acct-x", Created: at(1), Mentions: []string{"acct-y"}},
+			{AuthorID: "", Created: at(2)},
+		}},
+	}
+	for _, c := range cases {
+		if UnansweredMention("", c.cs) {
+			t.Errorf("%s: got true want false", c.name)
+		}
+	}
+}
