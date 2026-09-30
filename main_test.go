@@ -187,8 +187,8 @@ type harness struct {
 
 func newHarness(t *testing.T) *harness {
 	t.Helper()
-	cfg, err := config.NewStarter(filepath.Join(t.TempDir(), "config.toml"), config.Jira{
-		Site: "https://example.atlassian.net", Email: "me@example.com", BoardID: 1,
+	cfg, err := config.New(filepath.Join(t.TempDir(), "config.toml"), config.Jira{
+		Site: "https://example.atlassian.net", Email: "me@example.com", TokenEnv: "JIRA_API_TOKEN", BoardID: 1,
 	})
 	if err != nil {
 		t.Fatal(err)

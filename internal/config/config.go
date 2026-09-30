@@ -433,12 +433,6 @@ func New(path string, j Jira) (*Config, error) {
 	if (j.TokenCommand == "") == (j.TokenEnv == "") {
 		return nil, errors.New("set exactly one of jira.token_command or jira.token_env")
 	}
-	return NewStarter(path, j)
-}
-
-// NewStarter is New without the token source rule. It stays only until
-// main_test.go's harness calls New; delete it then.
-func NewStarter(path string, j Jira) (*Config, error) {
 	c := &Config{Jira: j, path: path}
 	if err := c.validate(); err != nil {
 		return nil, err
