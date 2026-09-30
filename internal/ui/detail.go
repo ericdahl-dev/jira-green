@@ -21,8 +21,11 @@ func RenderDetail(c model.Card, width int) string {
 	if c.StatusName != "" {
 		field("Status", c.StatusName)
 	}
-	if c.EpicKey != "" {
+	switch {
+	case c.EpicSummary != "":
 		field("Epic", c.EpicSummary)
+	case c.EpicKey != "":
+		field("Epic", c.EpicKey) // as model.ByEpic names it
 	}
 	field("Age", ageFlag(c))
 	assignee := c.AssigneeName

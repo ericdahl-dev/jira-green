@@ -94,3 +94,11 @@ func TestDetailNamesCommentAuthor(t *testing.T) {
 		t.Errorf("no display name falls back to the account ID:\n%s", v)
 	}
 }
+
+func TestDetailEpicWithoutSummary(t *testing.T) {
+	c := detailCard()
+	c.EpicSummary = ""
+	if v := ui.RenderDetail(c, 80); !strings.Contains(v, "Epic      ABC-E-Search\n") {
+		t.Errorf("an epic with no summary is named by its key:\n%s", v)
+	}
+}
