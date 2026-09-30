@@ -200,12 +200,12 @@ yellow = "3d"
 red    = "5d"
 
 [thresholds."Code Review"]
-yellow = "1d"
-red    = "2d"
+yellow = "3d"
+red    = "7d"
 
 [thresholds."UA"]
-yellow = "1d"
-red    = "2d"
+yellow = "3d"
+red    = "7d"
 
 [[webhooks]]
 url    = "https://hooks.example.com/jira-green"  # http or https
@@ -405,7 +405,7 @@ jira-green POSTs a JSON event when a card has stayed red for `stuck_alert_after`
   "summary": "Solr pagination breaks on page 11",
   "status": "In Review",
   "url": "<the issue's link on your Jira site>",
-  "reasons": ["flagged", "in Code Review 6d (red at 2d)"],
+  "reasons": ["flagged", "in Code Review 8d (red at 7d)"],
   "red_for": "2h",
   "at": "2026-09-30T14:05:00Z",
   "incomplete": true,

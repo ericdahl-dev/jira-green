@@ -94,8 +94,8 @@ const (
 func defaultThresholds() map[string]Age {
 	return map[string]Age{
 		"In Progress": {Yellow: "3d", Red: "5d"},
-		"Code Review": {Yellow: "1d", Red: "2d"},
-		"UA":          {Yellow: "1d", Red: "2d"},
+		"Code Review": {Yellow: "3d", Red: "7d"},
+		"UA":          {Yellow: "3d", Red: "7d"},
 	}
 }
 

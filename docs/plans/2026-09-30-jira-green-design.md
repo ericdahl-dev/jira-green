@@ -73,7 +73,7 @@ and the queries run unchanged.
 | ⚪ | Stale: last poll failed, showing last-known state |
 
 - Thresholds are per column. Defaults: In Progress 3d yellow / 5d red; Code Review and UA
-  1d yellow / 2d red. Configurable.
+  3d yellow / 7d red. Configurable.
 - Time in status comes from the changelog (`expand=changelog`), fetched only for issues whose
   `updated` timestamp changed, and cached.
 - Swimlane headers and epic rows roll up to the worst card. Red cards sort to the top of a column.
@@ -207,6 +207,6 @@ goreleaser -> `ericdahl-dev/tap` cask, the same way as coolify-green:
   red = "5d"
 
 [thresholds."Code Review"]
-  yellow = "1d"
-  red = "2d"
+  yellow = "3d"
+  red = "7d"
 ```
