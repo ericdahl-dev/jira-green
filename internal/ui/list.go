@@ -8,24 +8,27 @@ import (
 	"github.com/ericdahl-dev/jira-green/internal/model"
 )
 
-// Row is one line of the list view: a group header or a card.
-type Row struct {
+// ListRow is one line of the list view: a group header or a card. Both
+// point into the groups passed to ListRows, so a ListRow is valid only until
+// the next ByEpic. A row's index (the sel of RenderList) shifts when a group
+// above it is collapsed or expanded.
+type ListRow struct {
 	Group *model.EpicGroup
 	Card  *model.Card
 }
 
 // ListRows flattens groups into rows, skipping cards of collapsed groups.
 // collapsed is keyed by epic key ("" for No epic).
-func ListRows(groups []model.EpicGroup, collapsed map[string]bool) []Row {
-	var rows []Row
+func ListRows(groups []model.EpicGroup, collapsed map[string]bool) []ListRow {
+	var rows []ListRow
 	for gi := range groups {
 		g := &groups[gi]
-		rows = append(rows, Row{Group: g})
+		rows = append(rows, ListRow{Group: g})
 		if collapsed[g.Key] {
 			continue
 		}
 		for ci := range g.Cards {
-			rows = append(rows, Row{Card: &g.Cards[ci]})
+			rows = append(rows, ListRow{Card: &g.Cards[ci]})
 		}
 	}
 	return rows
@@ -33,13 +36,14 @@ func ListRows(groups []model.EpicGroup, collapsed map[string]bool) []Row {
 
 // RenderList draws the epic tree. sel indexes into ListRows.
 func RenderList(groups []model.EpicGroup, collapsed map[string]bool, sel, width int) string {
+	cw := listWidths(groups)
 	var sb strings.Builder
 	for i, r := range ListRows(groups, collapsed) {
 		var line string
 		if r.Group != nil {
 			line = groupLine(*r.Group, collapsed[r.Group.Key])
 		} else {
-			line = cardLine(*r.Card, width)
+			line = cardLine(*r.Card, cw, width)
 		}
 		line = pad(marker(i == sel)+line, width)
 		if i == sel {
@@ -64,14 +68,43 @@ func groupLine(g model.EpicGroup, collapsed bool) string {
 			waiting++
 		}
 	}
-	return fmt.Sprintf("%s %s %s Mine %d  Waiting %d", arrow, g.Light.Emoji(), pad(g.Name, 28), mine, waiting)
+	return fmt.Sprintf("%s %s %s %s", arrow, g.Light.Emoji(), pad(g.Name, 28), laneCounts(mine, waiting))
 }
 
-func cardLine(c model.Card, width int) string {
+// laneCounts is "Mine N  Waiting N", leaving out a zero count.
+func laneCounts(mine, waiting int) string {
+	var parts []string
+	if mine > 0 {
+		parts = append(parts, fmt.Sprintf("Mine %d", mine))
+	}
+	if waiting > 0 {
+		parts = append(parts, fmt.Sprintf("Waiting %d", waiting))
+	}
+	return strings.Join(parts, "  ")
+}
+
+// colWidths are the key and age column widths of the list view.
+type colWidths struct{ key, age int }
+
+// listWidths fits the key and age columns to the widest value in any group,
+// collapsed or not, so a key or a flagged age is never cut and the columns
+// do not shift when a group is toggled.
+func listWidths(groups []model.EpicGroup) colWidths {
+	w := colWidths{key: 9, age: 5}
+	for _, g := range groups {
+		for _, c := range g.Cards {
+			w.key = max(w.key, lipgloss.Width(c.Key))
+			w.age = max(w.age, lipgloss.Width(ageFlag(c)))
+		}
+	}
+	return w
+}
+
+func cardLine(c model.Card, cw colWidths, width int) string {
 	who := ""
 	if c.Lane != model.LaneMine && c.AssigneeName != "" {
 		who = " @" + firstWord(c.AssigneeName)
 	}
-	prefix := fmt.Sprintf("    %s %s %s %s ", c.Light.Emoji(), pad(c.Key, 9), pad(c.Column, 12), pad(ageFlag(c), 5))
+	prefix := fmt.Sprintf("    %s %s %s %s ", c.Light.Emoji(), pad(c.Key, cw.key), pad(c.Column, 12), pad(ageFlag(c), cw.age))
 	return prefix + truncate(c.Summary+who, max(10, width-1-lipgloss.Width(prefix)))
 }

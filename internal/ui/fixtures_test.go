@@ -86,7 +86,7 @@ func fxCards() []model.Card {
 		card("ABC-2020", "Update footer links", "To Do", model.LaneMine, model.Green, 0, "", "Me"),
 		card("ABC-1974", "Fix auth redirect loop", "In Progress", model.LaneMine, model.Yellow, 4*day, "Auth", "Me"),
 		card("ABC-1836", "Solr pagination breaks on page 11", "Code Review", model.LaneMine, model.Red, 6*day, "Search", "Me"),
-		card("ABC-1990", "Harden session cookie", "In Progress", model.LaneWaiting, model.Yellow, 3*day, "Auth", "J Smith"),
+		card("ABC-1990", "Harden session cookie", "In Progress", model.LaneWaiting, model.Yellow, 3*day, "Auth", "Jane Smith"),
 		card("ABC-1950", "Verify catalog export", "UA", model.LaneWaiting, model.Green, 1*day, "", "QA Team"),
 	}
 }

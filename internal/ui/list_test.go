@@ -35,7 +35,11 @@ func TestListRows(t *testing.T) {
 }
 
 func TestListGroupHeader(t *testing.T) {
-	cards := append(fxCards(), card("ABC-1900", "Shipped", "Done", model.LaneDone, model.Green, day, "Auth", "Me"))
+	cards := append(fxCards(),
+		card("ABC-1900", "Shipped", "Done", model.LaneDone, model.Green, day, "Auth", "Me"),
+		card("ABC-1901", "Invoice totals", "UA", model.LaneWaiting, model.Green, day, "Billing", "Jane Smith"),
+		card("ABC-1902", "Invoice dates", "UA", model.LaneWaiting, model.Green, day, "Billing", "Jane Smith"),
+	)
 	groups := model.ByEpic(cards)
 	ls := lines(ui.RenderList(groups, map[string]bool{"ABC-E-Accessibility": true}, -1, 80))
 
@@ -43,11 +47,21 @@ func TestListGroupHeader(t *testing.T) {
 	if !strings.HasPrefix(auth, " ▼ 🟡 Auth ") || !strings.HasSuffix(auth, " Mine 1  Waiting 1") {
 		t.Errorf("Auth header (Done card counts as neither): %q", auth)
 	}
+	if s := ls[lineWith(ls, "Search")]; !strings.HasSuffix(s, " Mine 1") || strings.Contains(s, "Waiting") {
+		t.Errorf("zero Waiting count is hidden: %q", s)
+	}
 	if acc := ls[lineWith(ls, "Accessibility")]; !strings.HasPrefix(acc, " ▶ 🟢 Accessibility ") {
 		t.Errorf("collapsed header: %q", acc)
 	}
 	if lineWith(ls, "ABC-2011") >= 0 {
 		t.Errorf("collapsed group hides its cards")
+	}
+	waitOnly := ls[lineWith(ls, "Billing")]
+	if !strings.HasSuffix(waitOnly, " Waiting 2") || strings.Contains(waitOnly, "Mine") {
+		t.Errorf("zero Mine count is hidden: %q", waitOnly)
+	}
+	if colOf(waitOnly, "Waiting") != colOf(auth, "Mine") {
+		t.Errorf("a lone Waiting count starts where Mine would:\n%s", strings.Join(ls, "\n"))
 	}
 	// Counts line up whatever the epic name's length.
 	if colOf(auth, "Mine") != colOf(ls[lineWith(ls, "No epic")], "Mine") {
@@ -62,7 +76,7 @@ func TestListCardRow(t *testing.T) {
 	if got := ls[lineWith(ls, "ABC-1836")]; got != want {
 		t.Errorf("card row\n got %q\nwant %q", got, want)
 	}
-	if got := ls[lineWith(ls, "ABC-1990")]; !strings.HasSuffix(got, "Harden session cookie @j") {
+	if got := ls[lineWith(ls, "ABC-1990")]; !strings.HasSuffix(got, "Harden session cookie @jane") {
 		t.Errorf("Waiting card names its assignee: %q", got)
 	}
 	if got := ls[lineWith(ls, "ABC-1974")]; strings.Contains(got, "@") {
@@ -117,5 +131,27 @@ func TestListFitsWidth(t *testing.T) {
 	ls := lines(ui.RenderList(groups, map[string]bool{}, -1, 80))
 	if got := ls[lineWith(ls, "ABC-3000")]; lipgloss.Width(got) != 80 || !strings.HasSuffix(got, "..") {
 		t.Errorf("long summary is cut to 80 columns with ..: %d %q", lipgloss.Width(got), got)
+	}
+}
+
+func TestListWideKeyAndAge(t *testing.T) {
+	cards := append(fxCards(),
+		card("ABC-1234567", "Long key", "To Do", model.LaneMine, model.Red, 400*day, "Auth", "Me"),
+	)
+	ls := lines(ui.RenderList(model.ByEpic(cards), map[string]bool{}, -1, 160))
+
+	i := lineWith(ls, "ABC-1234567")
+	if i < 0 {
+		t.Fatalf("key was cut:\n%s", strings.Join(ls, "\n"))
+	}
+	row := ls[i]
+	if !strings.Contains(row, " ABC-1234567 ") || !strings.Contains(row, " 400d ⚑ ") {
+		t.Errorf("key and flagged age are never cut: %q", row)
+	}
+	at := colOf(row, "Long key")
+	for key, word := range map[string]string{"ABC-1836": "Solr", "ABC-2020": "Update"} {
+		if got := colOf(ls[lineWith(ls, key)], word); got != at {
+			t.Errorf("%s summary at column %d, want %d (widths come from the widest row)", key, got, at)
+		}
 	}
 }

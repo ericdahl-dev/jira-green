@@ -16,8 +16,10 @@ func TestKanbanGolden(t *testing.T) {
 }
 
 func TestListGolden(t *testing.T) {
-	groups := model.ByEpic(fxCards())
-	collapsed := map[string]bool{"ABC-E-Accessibility": true}
+	// A long summary, so the 80 and 160 goldens differ.
+	cards := append(fxCards(), card("ABC-2030", "Announce the result count and active filters to screen readers after every search", "In Progress", model.LaneMine, model.Green, 2*day, "Accessibility", "Me"))
+	groups := model.ByEpic(cards)
+	collapsed := map[string]bool{"": true} // No epic
 	for _, w := range []int{80, 160} {
 		got := ui.RenderList(groups, collapsed, 1, w)
 		golden(t, "list_"+itoa(w), got)

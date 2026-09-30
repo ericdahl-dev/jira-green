@@ -6,10 +6,12 @@ import (
 	"strings"
 
 	"github.com/charmbracelet/lipgloss"
+	"github.com/charmbracelet/x/ansi"
 	"github.com/ericdahl-dev/jira-green/internal/model"
 )
 
-// Cursor addresses one card on the kanban board.
+// Cursor addresses one card on the kanban board. Col indexes b.Columns,
+// which includes a trailing Other column when one is in use.
 type Cursor struct {
 	Lane model.Lane
 	Col  int
@@ -43,9 +45,10 @@ func RenderKanban(b model.Board, cur Cursor, width int) string {
 
 	var head strings.Builder
 	for _, name := range b.Columns {
-		head.WriteString(headStyle.Render(pad(" "+name, colW)))
+		head.WriteString(pad(" "+name, colW))
 	}
-	sb.WriteString(strings.TrimRight(head.String(), " ") + "\n")
+	// Trim before styling: the escape codes would hide the padding.
+	sb.WriteString(headStyle.Render(strings.TrimRight(head.String(), " ")) + "\n")
 
 	for _, lane := range visibleLanes(b) {
 		title := fmt.Sprintf("─ %s %s (%d) ", b.LaneLight(lane).Emoji(), lane, b.LaneCount(lane))
@@ -124,13 +127,6 @@ func pad(s string, w int) string {
 	return s + strings.Repeat(" ", max(0, w-lipgloss.Width(s)))
 }
 
-func truncate(s string, w int) string {
-	if lipgloss.Width(s) <= w {
-		return s
-	}
-	r := []rune(s)
-	for len(r) > 0 && lipgloss.Width(string(r))+2 > w {
-		r = r[:len(r)-1]
-	}
-	return string(r) + ".."
-}
+// truncate cuts s to w display columns, ending in ".." when cut. It never
+// splits a grapheme.
+func truncate(s string, w int) string { return ansi.Truncate(s, w, "..") }

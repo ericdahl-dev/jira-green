@@ -5,6 +5,7 @@ import (
 	"testing"
 
 	"github.com/charmbracelet/lipgloss"
+	"github.com/charmbracelet/x/ansi"
 
 	"github.com/ericdahl-dev/jira-green/internal/model"
 	"github.com/ericdahl-dev/jira-green/internal/ui"
@@ -59,7 +60,7 @@ func TestKanbanCardOrderAndColumns(t *testing.T) {
 func TestKanbanMetaLine(t *testing.T) {
 	cards := []model.Card{
 		card("ABC-1", "Mine and flagged", "To Do", model.LaneMine, model.Red, 6*day, "", "Me"),
-		card("ABC-2", "Someone else", "To Do", model.LaneWaiting, model.Yellow, 3*day, "", "J Smith"),
+		card("ABC-2", "Someone else", "To Do", model.LaneWaiting, model.Yellow, 3*day, "", "Jane Smith"),
 		card("ABC-3", "Nobody", "UA", model.LaneWaiting, model.Green, 1*day, "", ""),
 	}
 	b := model.Layout(fxCols, cards, false)
@@ -69,11 +70,14 @@ func TestKanbanMetaLine(t *testing.T) {
 		t.Errorf("Mine meta = %q, want flag and no assignee", got)
 	}
 	meta := ls[lineWith(ls, "ABC-2")+2]
-	if !strings.HasPrefix(meta, "  @j 3d") {
-		t.Errorf("Waiting meta = %q, want @assignee then age", meta)
+	if !strings.HasPrefix(meta, "  @jane 3d") {
+		t.Errorf("Waiting meta = %q, want lowercased first name then age", meta)
 	}
-	if !strings.HasSuffix(meta, " 1d") || strings.Contains(meta, "@ ") {
-		t.Errorf("unassigned Waiting card shows only age: %q", meta)
+	// ABC-3's own cell: its key sits 4 columns into the cell (marker, light, space).
+	at := lineWith(ls, "ABC-3")
+	start := colOf(ls[at], "ABC-3") - 4
+	if got := strings.TrimSpace(ansi.Cut(ls[at+2], start, start+19)); got != "1d" {
+		t.Errorf("unassigned Waiting card shows only age: %q", got)
 	}
 }
 
@@ -127,5 +131,28 @@ func TestKanbanSelection(t *testing.T) {
 		if strings.Contains(l, rev) != want {
 			t.Errorf("line %d reversed=%v, want %v: %q", i, !want, want, l)
 		}
+	}
+}
+
+func TestKanbanTruncateKeepsGraphemes(t *testing.T) {
+	// 👩‍💻 is one grapheme of three code points (woman, ZWJ, laptop).
+	for _, prefix := range []string{"a", "ab", "abc", "abcd"} {
+		sum := prefix + " " + strings.Repeat("👩‍💻", 10)
+		cards := []model.Card{card("ABC-1", sum, "To Do", model.LaneMine, model.Green, day, "", "Me")}
+		ls := lines(ui.RenderKanban(model.Layout(fxCols, cards, false), ui.Cursor{Lane: model.LaneWaiting}, 80))
+		got := strings.TrimSpace(ls[lineWith(ls, "ABC-1")+1])
+		body := strings.TrimSuffix(got, "..")
+		if body == got || strings.Count(body, "👩") != strings.Count(body, "💻") {
+			t.Errorf("prefix %q: summary cut inside a grapheme: %q", prefix, got)
+		}
+	}
+}
+
+func TestKanbanHeaderHasNoTrailingPadInColor(t *testing.T) {
+	lipgloss.SetColorProfile(termenv.ANSI)
+	defer lipgloss.SetColorProfile(termenv.Ascii)
+	head := lines(ui.RenderKanban(model.Layout(fxCols, fxCards(), false), ui.Cursor{}, 80))[0]
+	if plain := ansi.Strip(head); plain != strings.TrimRight(plain, " ") {
+		t.Errorf("header ends in padding: %q", plain)
 	}
 }
