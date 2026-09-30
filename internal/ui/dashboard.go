@@ -60,6 +60,8 @@ type Dashboard struct {
 	// hiddenBacklog counts the Backlog cards the list leaves out while
 	// Backlog is collapsed.
 	hiddenBacklog int
+	// hiddenBacklogLight is the worst light among those cards.
+	hiddenBacklogLight model.Stoplight
 	showHelp      bool
 	detail        *model.Card // shown instead of the board when set
 	picker        *Picker     // shown over the board or detail when set
@@ -281,12 +283,13 @@ func (d *Dashboard) relayout() {
 	}
 	d.board = model.Layout(d.snap.Columns, cards, d.showDone)
 	listCards := cards
-	d.hiddenBacklog = 0
+	d.hiddenBacklog, d.hiddenBacklogLight = 0, model.Green
 	if !d.backlogOpen {
 		listCards = nil
 		for _, c := range cards {
 			if c.Lane == model.LaneBacklog {
 				d.hiddenBacklog++
+				d.hiddenBacklogLight = model.Worst(d.hiddenBacklogLight, c.Light)
 			} else {
 				listCards = append(listCards, c)
 			}
@@ -455,7 +458,7 @@ func (d Dashboard) View() string {
 			hint := fmt.Sprintf("kanban needs %d cols - showing list", minColWidth*len(d.board.Columns))
 			pinned = []string{dimStyle.Render(truncate(hint, d.width))}
 		}
-		ls = lines(RenderList(d.groups, d.collapsed, d.listSel, d.width, ListOptions{HiddenBacklog: d.hiddenBacklog, Progress: d.snap.EpicProgress}))
+		ls = lines(RenderList(d.groups, d.collapsed, d.listSel, d.width, ListOptions{HiddenBacklog: d.hiddenBacklog, HiddenBacklogLight: d.hiddenBacklogLight, Progress: d.snap.EpicProgress}))
 		from, to = d.listSel, d.listSel+1
 	} else {
 		all, cl := kanbanLines(d.board, d.cur, d.width, KanbanOptions{BacklogOpen: d.backlogOpen})

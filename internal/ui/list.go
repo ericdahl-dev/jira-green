@@ -39,6 +39,9 @@ type ListOptions struct {
 	// HiddenBacklog is how many Backlog cards the dashboard left out of
 	// groups while Backlog is collapsed. Non-zero adds a hint row at the end.
 	HiddenBacklog int
+	// HiddenBacklogLight is the worst light among those hidden cards,
+	// shown on the hint row so a red Backlog card is not out of sight.
+	HiddenBacklogLight model.Stoplight
 	// Progress is done/total child issues by epic key (poller.Snapshot's
 	// EpicProgress). A group with no entry, or no children, shows none.
 	Progress map[string]model.Progress
@@ -62,7 +65,7 @@ func RenderList(groups []model.EpicGroup, collapsed map[string]bool, sel, width 
 		sb.WriteString(strings.TrimRight(line, " ") + "\n")
 	}
 	if opt.HiddenBacklog > 0 {
-		hint := fmt.Sprintf(" ▶ %s (%d hidden) - b to show", model.LaneBacklog, opt.HiddenBacklog)
+		hint := fmt.Sprintf(" ▶ %s %s (%d hidden) - b to show", opt.HiddenBacklogLight.Emoji(), model.LaneBacklog, opt.HiddenBacklog)
 		sb.WriteString(dimStyle.Render(truncate(hint, width)) + "\n")
 	}
 	return sb.String()

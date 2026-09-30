@@ -24,7 +24,7 @@ func TestListGolden(t *testing.T) {
 	collapsed := map[string]bool{"": true} // No epic
 	progress := map[string]model.Progress{"ABC-E-Auth": {Done: 4, Total: 7}, "ABC-E-Search": {Done: 0, Total: 3}}
 	for _, w := range []int{80, 160} {
-		got := ui.RenderList(groups, collapsed, 1, w, ui.ListOptions{HiddenBacklog: len(fxBacklog()), Progress: progress})
+		got := ui.RenderList(groups, collapsed, 1, w, ui.ListOptions{HiddenBacklog: len(fxBacklog()), HiddenBacklogLight: model.Yellow, Progress: progress})
 		golden(t, "list_"+itoa(w), got)
 	}
 }

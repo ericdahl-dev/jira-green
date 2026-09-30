@@ -171,8 +171,8 @@ func TestListBacklog(t *testing.T) {
 	}
 
 	// Collapsed: the dashboard leaves the cards out and says how many.
-	ls = lines(ui.RenderList(model.ByEpic(fxCards()), map[string]bool{}, -1, 80, ui.ListOptions{HiddenBacklog: 2}))
-	if got := ls[len(ls)-1]; got != " ▶ Backlog (2 hidden) - b to show" {
+	ls = lines(ui.RenderList(model.ByEpic(fxCards()), map[string]bool{}, -1, 80, ui.ListOptions{HiddenBacklog: 2, HiddenBacklogLight: model.Yellow}))
+	if got := ls[len(ls)-1]; got != " ▶ 🟡 Backlog (2 hidden) - b to show" {
 		t.Errorf("last row %q", got)
 	}
 }

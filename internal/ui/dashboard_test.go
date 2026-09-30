@@ -522,7 +522,7 @@ func TestBTogglesKanbanBacklog(t *testing.T) {
 
 func TestBTogglesListBacklog(t *testing.T) {
 	d := withBacklog(t, "list")
-	if v := d.View(); !strings.Contains(v, "▶ Backlog (2 hidden) - b to show") || strings.Contains(v, "ABC-1710") {
+	if v := d.View(); !strings.Contains(v, "▶ 🟡 Backlog (2 hidden) - b to show") || strings.Contains(v, "ABC-1710") {
 		t.Fatalf("list hides Backlog cards and says so:\n%s", v)
 	}
 	d = press(d, "b")
@@ -652,5 +652,15 @@ func TestHelpExplainsTransitionAndMute(t *testing.T) {
 		if !strings.Contains(v, want) {
 			t.Errorf("help lacks %q:\n%s", want, v)
 		}
+	}
+}
+
+func TestHiddenBacklogRowShowsItsLight(t *testing.T) {
+	d := ui.NewDashboard("list", noOpen(t))
+	d, _ = d.Update(tea.WindowSizeMsg{Width: 120, Height: 40})
+	red := card("ABC-1720", "Stuck in the backlog", "To Do", model.LaneBacklog, model.Red, day, "", "Me")
+	d, _ = d.Update(poller.Snapshot{Columns: fxCols, Cards: append(fxCards(), append(fxBacklog(), red)...), At: fxAt})
+	if v := d.View(); !strings.Contains(v, "▶ 🔴 Backlog (3 hidden)") {
+		t.Errorf("hidden Backlog row lacks the red light:\n%s", v)
 	}
 }
