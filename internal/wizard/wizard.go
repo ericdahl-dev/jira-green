@@ -5,9 +5,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"io/fs"
 	"net/url"
-	"os"
 
 	"github.com/ericdahl-dev/jira-green/internal/config"
 	"github.com/ericdahl-dev/jira-green/internal/jira"
@@ -35,7 +33,7 @@ func Finish(ctx context.Context, api API, a Answers, path string, force bool) (*
 	if (a.TokenCommand == "") == (a.TokenEnv == "") {
 		return nil, errors.New("set exactly one of token command or token env")
 	}
-	c, err := config.NewStarter(path, config.Jira{
+	c, err := config.New(path, config.Jira{
 		Site:         a.Site,
 		Email:        a.Email,
 		TokenCommand: a.TokenCommand,
@@ -45,24 +43,19 @@ func Finish(ctx context.Context, api API, a Answers, path string, force bool) (*
 	if err != nil {
 		return nil, err
 	}
-	if !force {
-		switch _, err := os.Stat(path); {
-		case err == nil:
-			return nil, fmt.Errorf("%s already exists", path)
-		case !errors.Is(err, fs.ErrNotExist):
-			return nil, fmt.Errorf("check %s: %w", path, err)
-		}
-	}
 	if _, err := api.Myself(ctx); err != nil {
 		return nil, fmt.Errorf("verify account: %w", err)
 	}
 	if c.Jira.FlaggedField, err = api.FindFieldID(ctx, "Flagged"); err != nil {
 		return nil, err
 	}
-	return c, c.Save() // atomic: an existing file is replaced only now
+	if force {
+		return c, c.Save() // atomic: an existing file is replaced only now
+	}
+	return c, c.Create() // fails if a file appeared since RunInteractive checked
 }
 
-// validSite checks the site as it is typed; config.NewStarter checks it
+// validSite checks the site as it is typed; config.New checks it
 // again.
 func validSite(s string) error {
 	if u, err := url.Parse(s); err != nil || u.Scheme != "https" || u.Host == "" {

@@ -502,3 +502,20 @@ func TestBacklogJQLDefaultAndOverride(t *testing.T) {
 		t.Errorf("backlog override %q", c.BacklogJQL())
 	}
 }
+
+func TestCreateLeavesAnExistingFileAlone(t *testing.T) {
+	p := write(t, "old")
+	c, err := config.New(p, config.Jira{Site: "https://example.atlassian.net", Email: "me@example.com", TokenEnv: "JG_TEST_TOKEN", BoardID: 7})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := c.Create(); err == nil || !strings.Contains(err.Error(), "already exists") {
+		t.Errorf("want an already-exists error, got %v", err)
+	}
+	if b, _ := os.ReadFile(p); string(b) != "old" {
+		t.Errorf("file changed: %q", b)
+	}
+	if ents, _ := os.ReadDir(filepath.Dir(p)); len(ents) != 1 {
+		t.Errorf("temp file left behind: %v", ents)
+	}
+}

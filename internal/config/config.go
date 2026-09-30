@@ -303,32 +303,65 @@ func (c *Config) Save() error {
 
 // save is Save for a caller that already holds mu.
 func (c *Config) save() error {
-	var buf bytes.Buffer
-	if err := toml.NewEncoder(&buf).Encode(c); err != nil {
-		return err
-	}
-	dir := filepath.Dir(c.path)
-	if err := os.MkdirAll(dir, 0o700); err != nil {
-		return err
-	}
-	f, err := os.CreateTemp(dir, ".config-*.toml")
+	tmp, err := c.writeTemp()
 	if err != nil {
 		return err
 	}
-	tmp := f.Name()
 	defer func() { _ = os.Remove(tmp) }() // no-op after a successful rename
-	if _, err := f.Write(buf.Bytes()); err != nil {
-		_ = f.Close()
-		return err
-	}
-	if err := f.Chmod(0o600); err != nil {
-		_ = f.Close()
-		return err
-	}
-	if err := f.Close(); err != nil {
-		return err
-	}
 	return os.Rename(tmp, c.path)
+}
+
+// Create writes the config like Save, but only when no file is at its
+// path: the temp file is hard-linked into place, which fails atomically if
+// one appeared meanwhile.
+func (c *Config) Create() error {
+	c.mu.RLock()
+	defer c.mu.RUnlock()
+	tmp, err := c.writeTemp()
+	if err != nil {
+		return err
+	}
+	defer func() { _ = os.Remove(tmp) }() // the link keeps the file
+	switch err := os.Link(tmp, c.path); {
+	case errors.Is(err, fs.ErrExist):
+		return fmt.Errorf("%s already exists", c.path)
+	case err != nil:
+		return fmt.Errorf("create %s: %w", c.path, err)
+	}
+	return nil
+}
+
+// writeTemp encodes c into a synced mode-0600 temp file beside its path and
+// returns the temp file's name. The caller removes it.
+func (c *Config) writeTemp() (string, error) {
+	var buf bytes.Buffer
+	if err := toml.NewEncoder(&buf).Encode(c); err != nil {
+		return "", err
+	}
+	dir := filepath.Dir(c.path)
+	if err := os.MkdirAll(dir, 0o700); err != nil {
+		return "", fmt.Errorf("write %s: %w", c.path, err)
+	}
+	f, err := os.CreateTemp(dir, ".config-*.toml")
+	if err != nil {
+		return "", fmt.Errorf("write %s: %w", c.path, err)
+	}
+	tmp := f.Name()
+	err = f.Chmod(0o600)
+	if err == nil {
+		_, err = f.Write(buf.Bytes())
+	}
+	if err == nil {
+		err = f.Sync()
+	}
+	if cerr := f.Close(); err == nil {
+		err = cerr
+	}
+	if err != nil {
+		_ = os.Remove(tmp)
+		return "", err
+	}
+	return tmp, nil
 }
 
 // tokenCommandTimeout bounds how long token_command may run.
@@ -374,25 +407,23 @@ func ResolveToken(j Jira) (string, error) {
 
 // WriteStarter writes a new config for the wizard. It refuses to overwrite.
 func WriteStarter(path string, j Jira) (*Config, error) {
-	switch _, err := os.Stat(path); {
-	case err == nil:
-		return nil, fmt.Errorf("%s already exists", path)
-	case !errors.Is(err, fs.ErrNotExist):
-		return nil, fmt.Errorf("check %s: %w", path, err)
-	}
-	c, err := NewStarter(path, j)
+	c, err := New(path, j)
 	if err != nil {
 		return nil, err
 	}
-	return c, c.Save()
+	return c, c.Create()
 }
 
-// NewStarter validates j and returns a Config that saves to path. It writes
-// nothing; Save replaces any existing file atomically.
-func NewStarter(path string, j Jira) (*Config, error) {
+// New validates j and returns a Config that saves to path. It writes
+// nothing: Create writes it only where no file exists, and Save replaces
+// any existing file atomically.
+func New(path string, j Jira) (*Config, error) {
 	c := &Config{Jira: j, path: path}
 	if err := c.validate(); err != nil {
 		return nil, err
 	}
 	return c, nil
 }
+
+// NewStarter is New. It stays until main_test.go calls New.
+func NewStarter(path string, j Jira) (*Config, error) { return New(path, j) }
