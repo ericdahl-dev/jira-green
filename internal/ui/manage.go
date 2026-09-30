@@ -18,6 +18,7 @@ type manageRow struct {
 	key    string
 	label  string
 	indent bool
+	epic   string // a card row's epic key
 }
 
 // Manage is the screen for muting and unmuting epics and cards.
@@ -42,7 +43,7 @@ func NewManage(groups []model.EpicGroup, muted []string, setMuted func(key strin
 	for _, g := range groups {
 		m.rows = append(m.rows, manageRow{key: g.Key, label: g.Name})
 		for _, c := range g.Cards {
-			m.rows = append(m.rows, manageRow{key: c.Key, label: fmt.Sprintf("%s  %s", c.Key, c.DisplaySummary()), indent: true})
+			m.rows = append(m.rows, manageRow{key: c.Key, label: fmt.Sprintf("%s  %s", c.Key, c.DisplaySummary()), indent: true, epic: g.Key})
 		}
 	}
 	// The poller drops muted issues and epics, so they are not in groups:
@@ -129,6 +130,9 @@ func (m Manage) View() string {
 			mark = "✗"
 		}
 		line := mark + " " + r.label
+		if r.epic != "" && m.muted[r.epic] {
+			line += "  (epic muted)"
+		}
 		if r.key == "" {
 			line = "  " + r.label
 		}

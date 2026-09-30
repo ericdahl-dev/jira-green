@@ -182,3 +182,14 @@ func TestManageTakesTheDashboardSize(t *testing.T) {
 		}
 	}
 }
+
+func TestManageMarksCardsUnderAMutedEpic(t *testing.T) {
+	m := ui.NewManage(model.ByEpic(fxCards()), []string{"ABC-E-Auth"}, nil)
+	ls := lines(m.View())
+	if got := ls[lineWith(ls, "ABC-1974")]; !strings.HasSuffix(got, "Fix auth redirect loop  (epic muted)") {
+		t.Errorf("card under the muted Auth epic: %q", got)
+	}
+	if got := ls[lineWith(ls, "ABC-1836")]; strings.Contains(got, "muted") {
+		t.Errorf("card under a watched epic: %q", got)
+	}
+}
