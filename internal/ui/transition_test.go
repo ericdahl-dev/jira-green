@@ -151,3 +151,23 @@ func TestPickerNoTransitions(t *testing.T) {
 		t.Error("enter on an empty list does nothing")
 	}
 }
+
+func TestPickerIgnoresALateLoad(t *testing.T) {
+	// t, esc, t again: the first request's reply arrives after the second's.
+	p := pressPicker(loadedPicker(), "down", "enter") // confirming Finish, sel 1
+	p, _ = p.Update(ui.TransitionsLoadedMsg{Key: "ABC-1", Transitions: fxTransitions[:1]})
+	if v := p.View(); !strings.Contains(v, "Move ABC-1 to Done? y/n") {
+		t.Errorf("the late reply changes nothing:\n%s", v)
+	}
+	_, cmd := p.Update(key("y"))
+	if dm, ok := run(cmd).(ui.DoTransitionMsg); !ok || dm.TransitionID != "31" {
+		t.Errorf("y moves the confirmed transition: %#v", run(cmd))
+	}
+}
+
+func pressPicker(p ui.Picker, keys ...string) ui.Picker {
+	for _, k := range keys {
+		p, _ = p.Update(key(k))
+	}
+	return p
+}

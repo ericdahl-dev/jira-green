@@ -51,8 +51,11 @@ func NewPicker(key string) Picker { return Picker{key: key, loading: true} }
 func (p Picker) Update(msg tea.Msg) (Picker, tea.Cmd) {
 	switch msg := msg.(type) {
 	case TransitionsLoadedMsg:
-		if msg.Key == p.key {
+		// Only the first reply counts: after t, esc, t a second reply for
+		// the same key can arrive once the list is in use.
+		if msg.Key == p.key && p.loading {
 			p.loading, p.items, p.err = false, msg.Transitions, msg.Err
+			p.sel = min(p.sel, max(len(p.items)-1, 0))
 		}
 	case TransitionResultMsg:
 		if msg.Key != p.key {
