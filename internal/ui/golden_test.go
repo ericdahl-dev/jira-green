@@ -14,3 +14,12 @@ func TestKanbanGolden(t *testing.T) {
 		golden(t, "kanban_"+itoa(w), got)
 	}
 }
+
+func TestListGolden(t *testing.T) {
+	groups := model.ByEpic(fxCards())
+	collapsed := map[string]bool{"ABC-E-Accessibility": true}
+	for _, w := range []int{80, 160} {
+		got := ui.RenderList(groups, collapsed, 1, w)
+		golden(t, "list_"+itoa(w), got)
+	}
+}

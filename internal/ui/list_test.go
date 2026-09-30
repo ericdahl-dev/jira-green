@@ -1,0 +1,121 @@
+package ui_test
+
+import (
+	"strings"
+	"testing"
+
+	"github.com/charmbracelet/lipgloss"
+	"github.com/muesli/termenv"
+
+	"github.com/ericdahl-dev/jira-green/internal/model"
+	"github.com/ericdahl-dev/jira-green/internal/ui"
+)
+
+func TestListRows(t *testing.T) {
+	groups := model.ByEpic(fxCards())
+	rows := ui.ListRows(groups, map[string]bool{})
+	// 4 groups (Search, Auth, Accessibility, No epic) + 6 cards
+	if len(rows) != 10 {
+		t.Fatalf("rows %d, want 10", len(rows))
+	}
+	if rows[0].Group == nil || rows[0].Group.Name != "Search" || rows[1].Card == nil || rows[1].Card.Key != "ABC-1836" {
+		t.Errorf("row 0 is the Search header, row 1 its first card: %+v %+v", rows[0], rows[1])
+	}
+
+	rows = ui.ListRows(groups, map[string]bool{"ABC-E-Auth": true, "": true})
+	var keys []string
+	for _, r := range rows {
+		if r.Card != nil {
+			keys = append(keys, r.Card.Key)
+		}
+	}
+	if len(rows) != 6 || len(keys) != 2 || keys[0] != "ABC-1836" || keys[1] != "ABC-2011" {
+		t.Errorf("collapsed Auth and No epic keep their headers and hide their cards: %d rows, cards %v", len(rows), keys)
+	}
+}
+
+func TestListGroupHeader(t *testing.T) {
+	cards := append(fxCards(), card("ABC-1900", "Shipped", "Done", model.LaneDone, model.Green, day, "Auth", "Me"))
+	groups := model.ByEpic(cards)
+	ls := lines(ui.RenderList(groups, map[string]bool{"ABC-E-Accessibility": true}, -1, 80))
+
+	auth := ls[lineWith(ls, "Auth")]
+	if !strings.HasPrefix(auth, " ▼ 🟡 Auth ") || !strings.HasSuffix(auth, " Mine 1  Waiting 1") {
+		t.Errorf("Auth header (Done card counts as neither): %q", auth)
+	}
+	if acc := ls[lineWith(ls, "Accessibility")]; !strings.HasPrefix(acc, " ▶ 🟢 Accessibility ") {
+		t.Errorf("collapsed header: %q", acc)
+	}
+	if lineWith(ls, "ABC-2011") >= 0 {
+		t.Errorf("collapsed group hides its cards")
+	}
+	// Counts line up whatever the epic name's length.
+	if colOf(auth, "Mine") != colOf(ls[lineWith(ls, "No epic")], "Mine") {
+		t.Errorf("counts are not aligned:\n%s", strings.Join(ls, "\n"))
+	}
+}
+
+func TestListCardRow(t *testing.T) {
+	ls := lines(ui.RenderList(model.ByEpic(fxCards()), map[string]bool{}, -1, 160))
+
+	want := "     🔴 ABC-1836  Code Review  6d ⚑  Solr pagination breaks on page 11"
+	if got := ls[lineWith(ls, "ABC-1836")]; got != want {
+		t.Errorf("card row\n got %q\nwant %q", got, want)
+	}
+	if got := ls[lineWith(ls, "ABC-1990")]; !strings.HasSuffix(got, "Harden session cookie @j") {
+		t.Errorf("Waiting card names its assignee: %q", got)
+	}
+	if got := ls[lineWith(ls, "ABC-1974")]; strings.Contains(got, "@") {
+		t.Errorf("Mine card has no assignee: %q", got)
+	}
+	// Every card's summary starts in the same column.
+	at := colOf(ls[lineWith(ls, "ABC-1836")], "Solr")
+	if at < 0 {
+		t.Fatal("no summary on the ABC-1836 row")
+	}
+	for key, word := range map[string]string{"ABC-1974": "Fix", "ABC-2020": "Update", "ABC-1950": "Verify"} {
+		if got := colOf(ls[lineWith(ls, key)], word); got != at {
+			t.Errorf("%s summary at column %d, want %d", key, got, at)
+		}
+	}
+}
+
+func TestListSelection(t *testing.T) {
+	groups := model.ByEpic(fxCards())
+	sel := -1
+	for i, r := range ui.ListRows(groups, map[string]bool{}) {
+		if r.Card != nil && r.Card.Key == "ABC-1990" {
+			sel = i
+		}
+	}
+	ls := lines(ui.RenderList(groups, map[string]bool{}, sel, 80))
+	if got := strings.Count(strings.Join(ls, "\n"), ">"); got != 1 || !strings.HasPrefix(ls[sel], ">") || lineWith(ls, "ABC-1990") != sel {
+		t.Errorf("one marker, on row %d (ABC-1990):\n%s", sel, strings.Join(ls, "\n"))
+	}
+
+	lipgloss.SetColorProfile(termenv.ANSI)
+	defer lipgloss.SetColorProfile(termenv.Ascii)
+	for i, l := range lines(ui.RenderList(groups, map[string]bool{}, sel, 80)) {
+		if strings.Contains(l, "\x1b[7m") != (i == sel) {
+			t.Errorf("row %d reversed=%v, want only row %d: %q", i, i != sel, sel, l)
+		}
+	}
+}
+
+func TestListFitsWidth(t *testing.T) {
+	cards := append(fxCards(),
+		card("ABC-3000", strings.Repeat("very long summary ", 20), "Blocked Upstream Forever", model.LaneWaiting, model.Stale, 400*day, strings.Repeat("Epic ", 20), "Someonewithaverylongname Last"),
+	)
+	groups := model.ByEpic(cards)
+	for _, w := range []int{80, 160} {
+		for i, l := range lines(ui.RenderList(groups, map[string]bool{}, 1, w)) {
+			if lipgloss.Width(l) > w {
+				t.Errorf("width %d: line %d is %d wide: %q", w, i, lipgloss.Width(l), l)
+			}
+		}
+	}
+	ls := lines(ui.RenderList(groups, map[string]bool{}, -1, 80))
+	if got := ls[lineWith(ls, "ABC-3000")]; lipgloss.Width(got) != 80 || !strings.HasSuffix(got, "..") {
+		t.Errorf("long summary is cut to 80 columns with ..: %d %q", lipgloss.Width(got), got)
+	}
+}

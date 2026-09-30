@@ -96,17 +96,20 @@ func marker(selected bool) string {
 	return " "
 }
 
-// cardMeta is a card's age, a flag mark, and the assignee when the card is
-// not mine.
+// cardMeta is the assignee when the card is not mine, then ageFlag.
 func cardMeta(c model.Card) string {
-	meta := model.FormatAge(c.Age)
-	if c.Flagged {
-		meta += " ⚑"
-	}
 	if c.Lane != model.LaneMine && c.AssigneeName != "" {
-		meta = "@" + firstWord(c.AssigneeName) + " " + meta
+		return "@" + firstWord(c.AssigneeName) + " " + ageFlag(c)
 	}
-	return meta
+	return ageFlag(c)
+}
+
+// ageFlag is the card's age in status, with a flag mark when flagged.
+func ageFlag(c model.Card) string {
+	if c.Flagged {
+		return model.FormatAge(c.Age) + " ⚑"
+	}
+	return model.FormatAge(c.Age)
 }
 
 func firstWord(s string) string {

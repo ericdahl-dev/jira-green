@@ -1,0 +1,9 @@
+ ▼ 🔴 Search                       Mine 1  Waiting 0
+>    🔴 ABC-1836  Code Review  6d ⚑  Solr pagination breaks on page 11
+ ▼ 🟡 Auth                         Mine 1  Waiting 1
+     🟡 ABC-1974  In Progress  4d    Fix auth redirect loop
+     🟡 ABC-1990  In Progress  3d    Harden session cookie @j
+ ▶ 🟢 Accessibility                Mine 1  Waiting 0
+ ▼ 🟢 No epic                      Mine 1  Waiting 1
+     🟢 ABC-1950  UA           1d    Verify catalog export @qa
+     🟢 ABC-2020  To Do        0m    Update footer links

@@ -90,3 +90,12 @@ func fxCards() []model.Card {
 		card("ABC-1950", "Verify catalog export", "UA", model.LaneWaiting, model.Green, 1*day, "", "QA Team"),
 	}
 }
+
+// colOf is the display column where sub starts in line, or -1.
+func colOf(line, sub string) int {
+	i := strings.Index(line, sub)
+	if i < 0 {
+		return -1
+	}
+	return lipgloss.Width(line[:i])
+}
