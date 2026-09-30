@@ -3710,6 +3710,7 @@ Check:
 
 **Steps:**
 1. Write the README and CONTEXT.md. The screenshot must use `ABC-` keys only.
+   README must note: mute/unmute rewrites config.toml and drops # comments.
 2. `golangci-lint run` → fix everything it flags.
 3. `go test -race ./...` → PASS.
 4. Commit: `docs: README and CONTEXT`.
