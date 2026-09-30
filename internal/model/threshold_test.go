@@ -9,9 +9,9 @@ func TestParseAge(t *testing.T) {
 	ok := map[string]time.Duration{
 		"3d":   72 * time.Hour,
 		"1d":   24 * time.Hour,
+		"12h":  12 * time.Hour,
 		"90m":  90 * time.Minute,
 		"1d6h": 30 * time.Hour,
-		"12h":  12 * time.Hour,
 	}
 	for in, want := range ok {
 		got, err := ParseAge(in)
