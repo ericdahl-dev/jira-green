@@ -134,9 +134,8 @@ func TestEvaluateDecodeErrorsAreStale(t *testing.T) {
 	if c.Light != model.Stale {
 		t.Errorf("light %v, want stale", c.Light)
 	}
-	want := "data incomplete: created: bad time; flagged: not an array"
-	if !slices.Contains(c.Reasons, want) {
-		t.Errorf("reasons %q, want %q", c.Reasons, want)
+	if !c.Incomplete || len(c.Reasons) != 0 {
+		t.Errorf("incomplete %v reasons %q, want incomplete and no reasons: the errors are in DecodeErrors", c.Incomplete, c.Reasons)
 	}
 	iss.Flagged = true
 	if c := model.Evaluate(iss, "To Do", model.LaneMine, rules(), t0, false); c.Light != model.Red {

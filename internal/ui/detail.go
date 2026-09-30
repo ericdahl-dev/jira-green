@@ -50,7 +50,7 @@ func detailLines(c model.Card, width int) (body, hint []string) {
 			add("  • " + it)
 		}
 	}
-	bullets("Why", whyReasons(c))
+	bullets("Why", c.Reasons)
 	bullets("Data incomplete", c.DecodeErrors)
 
 	if c.URL != "" {
@@ -61,21 +61,6 @@ func detailLines(c model.Card, width int) (body, hint []string) {
 		ls[i] = truncate(ls[i], width)
 	}
 	return ls, []string{truncate(dimStyle.Render("esc back  t transition  o open"), width)}
-}
-
-// dataIncomplete starts the reason model.Evaluate gives for DecodeErrors.
-const dataIncomplete = "data incomplete: "
-
-// whyReasons are c's reasons less the DecodeErrors one: those errors have
-// their own Data incomplete section.
-func whyReasons(c model.Card) []string {
-	var out []string
-	for _, r := range c.Reasons {
-		if len(c.DecodeErrors) == 0 || !strings.HasPrefix(r, dataIncomplete) {
-			out = append(out, r)
-		}
-	}
-	return out
 }
 
 // commentSummary is "N comments, latest by X on DATE". X is the author's

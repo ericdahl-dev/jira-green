@@ -102,3 +102,13 @@ func TestDetailEpicWithoutSummary(t *testing.T) {
 		t.Errorf("an epic with no summary is named by its key:\n%s", v)
 	}
 }
+
+func TestDetailWhyKeepsEveryReason(t *testing.T) {
+	// Only Card.Incomplete puts DecodeErrors aside; Why never filters by text.
+	c := detailCard()
+	c.Incomplete = true
+	c.Reasons = []string{"data incomplete: a rule's own words"}
+	if v := ui.RenderDetail(c, 80); !strings.Contains(v, "Why\n  • data incomplete: a rule's own words\n") {
+		t.Errorf("a reason was dropped for its wording:\n%s", v)
+	}
+}

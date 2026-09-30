@@ -41,6 +41,9 @@ type Card struct {
 	Light   Stoplight
 	Age     time.Duration // time in current status; 0 when unknown
 	Reasons []string      // human-readable, shown in the detail pane
+	// Incomplete is set when the issue has DecodeErrors. They make the card
+	// Stale but are not Reasons: the detail pane lists them on their own.
+	Incomplete bool
 }
 
 // Evaluate computes a card's stoplight. Red: flagged, blocked label, or over
@@ -80,7 +83,8 @@ func Evaluate(iss Issue, column string, lane Lane, r Rules, now time.Time, stale
 		raise(Yellow, "unanswered mention")
 	}
 	if len(iss.DecodeErrors) > 0 {
-		raise(Stale, "data incomplete: "+strings.Join(iss.DecodeErrors, "; "))
+		c.Incomplete = true
+		c.Light = Worst(c.Light, Stale)
 	}
 	if stale {
 		c.Light = Worst(c.Light, Stale)
