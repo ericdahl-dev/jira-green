@@ -70,3 +70,13 @@ func TestRateLimitCarriesRetryAfter(t *testing.T) {
 		t.Fatalf("got %v", err)
 	}
 }
+
+func TestForbiddenIsNotAuth(t *testing.T) {
+	c := newTest(t, func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusForbidden)
+	})
+	_, err := c.Myself(context.Background())
+	if err == nil || jira.IsAuth(err) {
+		t.Fatalf("403 should be an error but not an auth error, got %v", err)
+	}
+}
