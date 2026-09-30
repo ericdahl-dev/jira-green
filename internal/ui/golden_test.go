@@ -8,11 +8,13 @@ import (
 )
 
 func TestKanbanGolden(t *testing.T) {
-	b := model.Layout(fxCols, fxCards(), false)
+	b := model.Layout(fxCols, append(fxCards(), fxBacklog()...), false)
 	for _, w := range []int{80, 160} {
-		got := ui.RenderKanban(b, ui.Cursor{Lane: model.LaneMine, Col: 2, Row: 0}, w)
+		got := ui.RenderKanban(b, ui.Cursor{Lane: model.LaneMine, Col: 2, Row: 0}, w, ui.KanbanOptions{})
 		golden(t, "kanban_"+itoa(w), got)
 	}
+	got := ui.RenderKanban(b, ui.Cursor{Lane: model.LaneMine, Col: 2, Row: 0}, 80, ui.KanbanOptions{BacklogOpen: true})
+	golden(t, "kanban_80_backlog", got)
 }
 
 func TestListGolden(t *testing.T) {
@@ -21,7 +23,7 @@ func TestListGolden(t *testing.T) {
 	groups := model.ByEpic(cards)
 	collapsed := map[string]bool{"": true} // No epic
 	for _, w := range []int{80, 160} {
-		got := ui.RenderList(groups, collapsed, 1, w)
+		got := ui.RenderList(groups, collapsed, 1, w, ui.ListOptions{HiddenBacklog: len(fxBacklog())})
 		golden(t, "list_"+itoa(w), got)
 	}
 }

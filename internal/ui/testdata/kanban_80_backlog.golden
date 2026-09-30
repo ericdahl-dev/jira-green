@@ -10,4 +10,10 @@
                     🟡 ABC-1990                           🟢 ABC-1950
                      Harden session..                      Verify catalog..
                      @jane 3d                              @qa 1d
-─ 🟡 ▶ Backlog (2) ───────────────────────────────────────────────── b to expand
+─ 🟡 ▼ Backlog (2) ─────────────────────────────────────────────────────────────
+ 🟡 ABC-1700
+  Retire the leg..
+  30d
+ 🟢 ABC-1710
+  Document the r..
+  12d

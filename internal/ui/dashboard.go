@@ -40,12 +40,18 @@ type Dashboard struct {
 	listSel   int
 	collapsed map[string]bool
 	showDone  bool
-	showHelp  bool
-	detail    *model.Card // shown instead of the board when set
-	picker    *Picker     // shown over the board or detail when set
-	width     int
-	height    int
-	openURL   func(string) error
+	// backlogOpen shows the Backlog lane's cards in both views. It starts
+	// false and lasts for the session.
+	backlogOpen bool
+	// hiddenBacklog counts the Backlog cards the list leaves out while
+	// Backlog is collapsed.
+	hiddenBacklog int
+	showHelp      bool
+	detail        *model.Card // shown instead of the board when set
+	picker        *Picker     // shown over the board or detail when set
+	width         int
+	height        int
+	openURL       func(string) error
 }
 
 // NewDashboard starts in defaultView ("kanban" or "list"). openURL opens a
@@ -133,6 +139,9 @@ func (d Dashboard) handleKey(k tea.KeyMsg) (Dashboard, tea.Cmd) {
 	case "d":
 		d.showDone = !d.showDone
 		d.relayout()
+	case "b":
+		d.backlogOpen = !d.backlogOpen
+		d.relayout()
 	case "o":
 		return d, d.open(d.Selected())
 	case "t":
@@ -213,7 +222,19 @@ func (d *Dashboard) relayout() {
 		}
 	}
 	d.board = model.Layout(d.snap.Columns, cards, d.showDone)
-	d.groups = model.ByEpic(cards)
+	listCards := cards
+	d.hiddenBacklog = 0
+	if !d.backlogOpen {
+		listCards = nil
+		for _, c := range cards {
+			if c.Lane == model.LaneBacklog {
+				d.hiddenBacklog++
+			} else {
+				listCards = append(listCards, c)
+			}
+		}
+	}
+	d.groups = model.ByEpic(listCards)
 	d.findKanban(kanbanKey)
 	d.findListRow(listRow)
 	d.clamp()
@@ -221,7 +242,7 @@ func (d *Dashboard) relayout() {
 
 // findKanban puts the kanban cursor on the card with key, if it is shown.
 func (d *Dashboard) findKanban(key string) {
-	for _, l := range visibleLanes(d.board) {
+	for _, l := range visibleLanes(d.board, d.backlogOpen) {
 		for ci := range d.board.Columns {
 			for ri, c := range d.cell(l, ci) {
 				if key != "" && c.Key == key {
@@ -267,11 +288,12 @@ func (d Dashboard) cell(l model.Lane, col int) []model.Card {
 // shrank, or else the board's first card.
 func (d *Dashboard) clamp() {
 	d.listSel = min(d.listSel, max(len(ListRows(d.groups, d.collapsed))-1, 0))
-	if n := len(d.cell(d.cur.Lane, d.cur.Col)); n > 0 {
+	lanes := visibleLanes(d.board, d.backlogOpen)
+	if n := len(d.cell(d.cur.Lane, d.cur.Col)); n > 0 && slices.Contains(lanes, d.cur.Lane) {
 		d.cur.Row = min(max(d.cur.Row, 0), n-1)
 		return
 	}
-	for _, l := range visibleLanes(d.board) {
+	for _, l := range lanes {
 		for ci := range d.board.Columns {
 			if len(d.cell(l, ci)) > 0 {
 				d.cur = Cursor{Lane: l, Col: ci}
@@ -321,7 +343,7 @@ func (d *Dashboard) moveRow(dy int) {
 		d.cur.Row = r
 		return
 	}
-	lanes := visibleLanes(d.board)
+	lanes := visibleLanes(d.board, d.backlogOpen)
 	for li := slices.Index(lanes, d.cur.Lane) + dy; li >= 0 && li < len(lanes); li += dy {
 		if n := len(d.cell(lanes[li], d.cur.Col)); n > 0 {
 			d.cur.Lane, d.cur.Row = lanes[li], 0
@@ -364,18 +386,18 @@ func (d Dashboard) View() string {
 	}
 	var body string
 	if d.listShown() {
-		body = RenderList(d.groups, d.collapsed, d.listSel, d.width)
+		body = RenderList(d.groups, d.collapsed, d.listSel, d.width, ListOptions{HiddenBacklog: d.hiddenBacklog})
 		if d.mode == ViewKanban {
 			hint := fmt.Sprintf("kanban needs %d cols - showing list", minColWidth*len(d.board.Columns))
 			body = dimStyle.Render(truncate(hint, d.width)) + "\n" + body
 		}
 	} else {
-		body = RenderKanban(d.board, d.cur, d.width)
+		body = RenderKanban(d.board, d.cur, d.width, KanbanOptions{BacklogOpen: d.backlogOpen})
 	}
 	return strings.TrimSuffix(body, "\n") + "\n" + d.statusLine()
 }
 
-const keyHints = "←→↑↓ move  enter detail  t transition  o open  v view  d done  r refresh  m manage  q quit  ? help"
+const keyHints = "←→↑↓ move  enter detail  t transition  o open  v view  d done  b backlog  r refresh  m manage  q quit  ? help"
 
 func (d Dashboard) statusLine() string {
 	synced := "never synced"

@@ -34,8 +34,15 @@ func ListRows(groups []model.EpicGroup, collapsed map[string]bool) []ListRow {
 	return rows
 }
 
+// ListOptions are the dashboard's view state that RenderList draws.
+type ListOptions struct {
+	// HiddenBacklog is how many Backlog cards the dashboard left out of
+	// groups while Backlog is collapsed. Non-zero adds a hint row at the end.
+	HiddenBacklog int
+}
+
 // RenderList draws the epic tree. sel indexes into ListRows.
-func RenderList(groups []model.EpicGroup, collapsed map[string]bool, sel, width int) string {
+func RenderList(groups []model.EpicGroup, collapsed map[string]bool, sel, width int, opt ListOptions) string {
 	cw := listWidths(groups)
 	var sb strings.Builder
 	for i, r := range ListRows(groups, collapsed) {
@@ -51,6 +58,10 @@ func RenderList(groups []model.EpicGroup, collapsed map[string]bool, sel, width 
 		}
 		sb.WriteString(strings.TrimRight(line, " ") + "\n")
 	}
+	if opt.HiddenBacklog > 0 {
+		hint := fmt.Sprintf(" ▶ %s (%d hidden) - b to show", model.LaneBacklog, opt.HiddenBacklog)
+		sb.WriteString(dimStyle.Render(truncate(hint, width)) + "\n")
+	}
 	return sb.String()
 }
 
@@ -59,26 +70,24 @@ func groupLine(g model.EpicGroup, collapsed bool) string {
 	if collapsed {
 		arrow = "▶"
 	}
-	mine, waiting := 0, 0
-	for _, c := range g.Cards {
-		switch c.Lane {
-		case model.LaneMine:
-			mine++
-		case model.LaneWaiting:
-			waiting++
-		}
-	}
-	return fmt.Sprintf("%s %s %s %s", arrow, g.Light.Emoji(), pad(g.Name, 28), laneCounts(mine, waiting))
+	return fmt.Sprintf("%s %s %s %s", arrow, g.Light.Emoji(), pad(g.Name, 28), laneCounts(g.Cards))
 }
 
-// laneCounts is "Mine N  Waiting N", leaving out a zero count.
-func laneCounts(mine, waiting int) string {
-	var parts []string
-	if mine > 0 {
-		parts = append(parts, fmt.Sprintf("Mine %d", mine))
+// laneCounts is "Mine N  Waiting N  Backlog N", leaving out a zero count.
+// Done cards count as none of them.
+func laneCounts(cards []model.Card) string {
+	n := map[model.Lane]int{}
+	for _, c := range cards {
+		n[c.Lane]++
 	}
-	if waiting > 0 {
-		parts = append(parts, fmt.Sprintf("Waiting %d", waiting))
+	var parts []string
+	for _, l := range []struct {
+		lane model.Lane
+		name string
+	}{{model.LaneMine, "Mine"}, {model.LaneWaiting, "Waiting"}, {model.LaneBacklog, "Backlog"}} {
+		if n[l.lane] > 0 {
+			parts = append(parts, fmt.Sprintf("%s %d", l.name, n[l.lane]))
+		}
 	}
 	return strings.Join(parts, "  ")
 }
@@ -102,7 +111,7 @@ func listWidths(groups []model.EpicGroup) colWidths {
 
 func cardLine(c model.Card, cw colWidths, width int) string {
 	who := ""
-	if c.Lane != model.LaneMine && c.AssigneeName != "" {
+	if namesAssignee(c) {
 		who = " @" + firstWord(c.AssigneeName)
 	}
 	prefix := fmt.Sprintf("    %s %s %s %s ", c.Light.Emoji(), pad(c.Key, cw.key), pad(c.Column, 12), pad(ageFlag(c), cw.age))

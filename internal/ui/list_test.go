@@ -41,7 +41,7 @@ func TestListGroupHeader(t *testing.T) {
 		card("ABC-1902", "Invoice dates", "UA", model.LaneWaiting, model.Green, day, "Billing", "Jane Smith"),
 	)
 	groups := model.ByEpic(cards)
-	ls := lines(ui.RenderList(groups, map[string]bool{"ABC-E-Accessibility": true}, -1, 80))
+	ls := lines(ui.RenderList(groups, map[string]bool{"ABC-E-Accessibility": true}, -1, 80, ui.ListOptions{}))
 
 	auth := ls[lineWith(ls, "Auth")]
 	if !strings.HasPrefix(auth, " ▼ 🟡 Auth ") || !strings.HasSuffix(auth, " Mine 1  Waiting 1") {
@@ -70,7 +70,7 @@ func TestListGroupHeader(t *testing.T) {
 }
 
 func TestListCardRow(t *testing.T) {
-	ls := lines(ui.RenderList(model.ByEpic(fxCards()), map[string]bool{}, -1, 160))
+	ls := lines(ui.RenderList(model.ByEpic(fxCards()), map[string]bool{}, -1, 160, ui.ListOptions{}))
 
 	want := "     🔴 ABC-1836  Code Review  6d ⚑  Solr pagination breaks on page 11"
 	if got := ls[lineWith(ls, "ABC-1836")]; got != want {
@@ -102,14 +102,14 @@ func TestListSelection(t *testing.T) {
 			sel = i
 		}
 	}
-	ls := lines(ui.RenderList(groups, map[string]bool{}, sel, 80))
+	ls := lines(ui.RenderList(groups, map[string]bool{}, sel, 80, ui.ListOptions{}))
 	if got := strings.Count(strings.Join(ls, "\n"), ">"); got != 1 || !strings.HasPrefix(ls[sel], ">") || lineWith(ls, "ABC-1990") != sel {
 		t.Errorf("one marker, on row %d (ABC-1990):\n%s", sel, strings.Join(ls, "\n"))
 	}
 
 	lipgloss.SetColorProfile(termenv.ANSI)
 	defer lipgloss.SetColorProfile(termenv.Ascii)
-	for i, l := range lines(ui.RenderList(groups, map[string]bool{}, sel, 80)) {
+	for i, l := range lines(ui.RenderList(groups, map[string]bool{}, sel, 80, ui.ListOptions{})) {
 		if strings.Contains(l, "\x1b[7m") != (i == sel) {
 			t.Errorf("row %d reversed=%v, want only row %d: %q", i, i != sel, sel, l)
 		}
@@ -122,13 +122,13 @@ func TestListFitsWidth(t *testing.T) {
 	)
 	groups := model.ByEpic(cards)
 	for _, w := range []int{80, 160} {
-		for i, l := range lines(ui.RenderList(groups, map[string]bool{}, 1, w)) {
+		for i, l := range lines(ui.RenderList(groups, map[string]bool{}, 1, w, ui.ListOptions{})) {
 			if lipgloss.Width(l) > w {
 				t.Errorf("width %d: line %d is %d wide: %q", w, i, lipgloss.Width(l), l)
 			}
 		}
 	}
-	ls := lines(ui.RenderList(groups, map[string]bool{}, -1, 80))
+	ls := lines(ui.RenderList(groups, map[string]bool{}, -1, 80, ui.ListOptions{}))
 	if got := ls[lineWith(ls, "ABC-3000")]; lipgloss.Width(got) != 80 || !strings.HasSuffix(got, "..") {
 		t.Errorf("long summary is cut to 80 columns with ..: %d %q", lipgloss.Width(got), got)
 	}
@@ -138,7 +138,7 @@ func TestListWideKeyAndAge(t *testing.T) {
 	cards := append(fxCards(),
 		card("ABC-1234567", "Long key", "To Do", model.LaneMine, model.Red, 400*day, "Auth", "Me"),
 	)
-	ls := lines(ui.RenderList(model.ByEpic(cards), map[string]bool{}, -1, 160))
+	ls := lines(ui.RenderList(model.ByEpic(cards), map[string]bool{}, -1, 160, ui.ListOptions{}))
 
 	i := lineWith(ls, "ABC-1234567")
 	if i < 0 {
@@ -153,5 +153,26 @@ func TestListWideKeyAndAge(t *testing.T) {
 		if got := colOf(ls[lineWith(ls, key)], word); got != at {
 			t.Errorf("%s summary at column %d, want %d (widths come from the widest row)", key, got, at)
 		}
+	}
+}
+
+func TestListBacklog(t *testing.T) {
+	// Open: Backlog cards sit in their epics and count in the header.
+	groups := model.ByEpic(append(fxCards(), fxBacklog()...))
+	ls := lines(ui.RenderList(groups, map[string]bool{}, -1, 80, ui.ListOptions{}))
+	if s := ls[lineWith(ls, "Search")]; !strings.HasSuffix(s, " Mine 1  Backlog 1") {
+		t.Errorf("Search header counts its Backlog card: %q", s)
+	}
+	if got := ls[lineWith(ls, "ABC-1700")]; strings.Contains(got, "@") {
+		t.Errorf("a Backlog card is mine and names no assignee: %q", got)
+	}
+	if lineWith(ls, "hidden") >= 0 {
+		t.Errorf("nothing hidden, no hint row:\n%s", strings.Join(ls, "\n"))
+	}
+
+	// Collapsed: the dashboard leaves the cards out and says how many.
+	ls = lines(ui.RenderList(model.ByEpic(fxCards()), map[string]bool{}, -1, 80, ui.ListOptions{HiddenBacklog: 2}))
+	if got := ls[len(ls)-1]; got != " ▶ Backlog (2 hidden) - b to show" {
+		t.Errorf("last row %q", got)
 	}
 }

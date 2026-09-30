@@ -481,3 +481,56 @@ func TestOInDetailOpensTheCard(t *testing.T) {
 		t.Errorf("opened %q", opened)
 	}
 }
+
+func withBacklog(t *testing.T, view string) ui.Dashboard {
+	t.Helper()
+	d := ui.NewDashboard(view, noOpen(t))
+	d, _ = d.Update(tea.WindowSizeMsg{Width: 120, Height: 40})
+	d, _ = d.Update(poller.Snapshot{Columns: fxCols, Cards: append(fxCards(), fxBacklog()...), At: fxAt})
+	return d
+}
+
+func TestBTogglesKanbanBacklog(t *testing.T) {
+	d := withBacklog(t, "kanban")
+	if v := d.View(); !strings.Contains(v, "▶ Backlog (2)") || strings.Contains(v, "ABC-1700") {
+		t.Fatalf("Backlog starts collapsed:\n%s", v)
+	}
+	// Down from Mine's To Do lands in nothing below: Waiting has no To Do
+	// card and the collapsed Backlog is skipped.
+	walk(t, d, [][2]string{{"down", "ABC-2020"}, {"down", "ABC-2020"}})
+
+	d = press(d, "b")
+	if v := d.View(); !strings.Contains(v, "▼ Backlog (2)") || !strings.Contains(v, "ABC-1700") {
+		t.Fatalf("b expands Backlog:\n%s", v)
+	}
+	d = walk(t, d, [][2]string{{"down", "ABC-2020"}, {"down", "ABC-1700"}, {"down", "ABC-1710"}})
+
+	// Collapsing with the cursor inside moves it back onto a shown card.
+	d = press(d, "b")
+	if got := selKey(d); got == "ABC-1710" || got == "" {
+		t.Errorf("cursor left on a hidden card: %q", got)
+	}
+	if v := press(d, "v").View(); strings.Contains(v, "ABC-1700") {
+		t.Errorf("the state carries to the list:\n%s", v)
+	}
+}
+
+func TestBTogglesListBacklog(t *testing.T) {
+	d := withBacklog(t, "list")
+	if v := d.View(); !strings.Contains(v, "▶ Backlog (2 hidden) - b to show") || strings.Contains(v, "ABC-1710") {
+		t.Fatalf("list hides Backlog cards and says so:\n%s", v)
+	}
+	d = press(d, "b")
+	if v := d.View(); strings.Contains(v, "hidden") || !strings.Contains(v, "ABC-1710") || !strings.Contains(v, "Backlog 1") {
+		t.Errorf("b shows them in their groups:\n%s", v)
+	}
+}
+
+func TestBInHelpAndHints(t *testing.T) {
+	if v := press(loaded(t, "kanban"), "?").View(); !strings.Contains(v, "  b             show or hide Backlog") {
+		t.Errorf("help:\n%s", v)
+	}
+	if got := status(loaded(t, "kanban")); !strings.Contains(got, "  b backlog  ") {
+		t.Errorf("status hint %q", got)
+	}
+}

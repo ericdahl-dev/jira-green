@@ -24,18 +24,28 @@ var (
 	headStyle = lipgloss.NewStyle().Bold(true)
 )
 
-// visibleLanes are the lanes the kanban draws, in order. Done shows as a
-// lane only when it has cards.
-func visibleLanes(b model.Board) []model.Lane {
+// visibleLanes are the lanes the kanban draws, in order. Backlog and Done
+// show only when they have cards, and Backlog only when backlog is set.
+func visibleLanes(b model.Board, backlog bool) []model.Lane {
 	ls := []model.Lane{model.LaneMine, model.LaneWaiting}
+	if backlog && b.LaneCount(model.LaneBacklog) > 0 {
+		ls = append(ls, model.LaneBacklog)
+	}
 	if b.LaneCount(model.LaneDone) > 0 {
 		ls = append(ls, model.LaneDone)
 	}
 	return ls
 }
 
+// KanbanOptions are the dashboard's view state that RenderKanban draws.
+type KanbanOptions struct {
+	// BacklogOpen draws the Backlog as a lane of cards. Closed, it is a
+	// one-line rule with its light and count.
+	BacklogOpen bool
+}
+
 // RenderKanban draws the board to fit width.
-func RenderKanban(b model.Board, cur Cursor, width int) string {
+func RenderKanban(b model.Board, cur Cursor, width int, opt KanbanOptions) string {
 	n := len(b.Columns)
 	if n == 0 {
 		return "no columns"
@@ -50,8 +60,16 @@ func RenderKanban(b model.Board, cur Cursor, width int) string {
 	// Trim before styling: the escape codes would hide the padding.
 	sb.WriteString(headStyle.Render(strings.TrimRight(head.String(), " ")) + "\n")
 
-	for _, lane := range visibleLanes(b) {
-		title := fmt.Sprintf("─ %s %s (%d) ", b.LaneLight(lane).Emoji(), lane, b.LaneCount(lane))
+	for _, lane := range visibleLanes(b, true) {
+		if lane == model.LaneBacklog && !opt.BacklogOpen {
+			sb.WriteString(backlogRule(b, width) + "\n")
+			continue
+		}
+		name := lane.String()
+		if lane == model.LaneBacklog {
+			name = "▼ " + name
+		}
+		title := fmt.Sprintf("─ %s %s (%d) ", b.LaneLight(lane).Emoji(), name, b.LaneCount(lane))
 		sb.WriteString(title + strings.Repeat("─", max(0, width-lipgloss.Width(title))) + "\n")
 
 		depth := 0
@@ -90,6 +108,14 @@ func RenderKanban(b model.Board, cur Cursor, width int) string {
 	return sb.String()
 }
 
+// backlogRule is the collapsed Backlog: "─ 🟡 ▶ Backlog (N) ─── b to expand".
+func backlogRule(b model.Board, width int) string {
+	title := fmt.Sprintf("─ %s ▶ %s (%d) ", b.LaneLight(model.LaneBacklog).Emoji(), model.LaneBacklog, b.LaneCount(model.LaneBacklog))
+	const hint = " b to expand"
+	fill := max(1, width-lipgloss.Width(title)-lipgloss.Width(hint))
+	return truncate(title+strings.Repeat("─", fill)+hint, width)
+}
+
 // marker is the selection gutter. It shows the cursor where color is off
 // (NO_COLOR, dumb terminals) and reverse video would not.
 func marker(selected bool) string {
@@ -99,9 +125,15 @@ func marker(selected bool) string {
 	return " "
 }
 
+// namesAssignee reports whether a view names c's assignee: Mine and Backlog
+// cards are mine.
+func namesAssignee(c model.Card) bool {
+	return c.Lane != model.LaneMine && c.Lane != model.LaneBacklog && c.AssigneeName != ""
+}
+
 // cardMeta is the assignee when the card is not mine, then ageFlag.
 func cardMeta(c model.Card) string {
-	if c.Lane != model.LaneMine && c.AssigneeName != "" {
+	if namesAssignee(c) {
 		return "@" + firstWord(c.AssigneeName) + " " + ageFlag(c)
 	}
 	return ageFlag(c)

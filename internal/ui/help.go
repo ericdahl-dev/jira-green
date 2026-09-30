@@ -8,6 +8,7 @@ const helpText = `jira-green keys
   o             open the selected card in the browser
   v             switch between kanban and list
   d             show or hide Done
+  b             show or hide Backlog
   r             refresh now
   m             mute epics and cards
   ?             toggle this help
