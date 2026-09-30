@@ -146,7 +146,7 @@ func marker(selected bool) string {
 // namesAssignee reports whether a view names c's assignee: Mine and Backlog
 // cards are mine.
 func namesAssignee(c model.Card) bool {
-	return c.Lane != model.LaneMine && c.Lane != model.LaneBacklog && c.AssigneeName != ""
+	return c.Lane == model.LaneWaiting && c.AssigneeName != ""
 }
 
 // cardMeta is the assignee when the card is not mine, then ageFlag.
