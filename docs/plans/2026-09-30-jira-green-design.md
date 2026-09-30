@@ -67,7 +67,7 @@ and the queries run unchanged.
 
 | Light | Rule |
 |---|---|
-| 🔴 | Flagged / impediment, a `blocked` label, or time in current status over the column's red threshold |
+| 🔴 | Flagged / impediment, a `blocked` label, a column named like a blocked label, or time in current status over the column's red threshold |
 | 🟡 | Time in status over the yellow threshold, or an unanswered comment mentioning me |
 | 🟢 | Moving |
 | ⚪ | Stale: last poll failed, showing last-known state |

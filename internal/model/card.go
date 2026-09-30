@@ -29,7 +29,7 @@ func (l Lane) String() string {
 // Rules configures Evaluate.
 type Rules struct {
 	Me            string               // my Jira account ID
-	BlockedLabels []string             // matched case-insensitively
+	BlockedLabels []string             // matched case-insensitively against labels and the column name
 	Thresholds    map[string]Threshold // keyed by board column name
 }
 
@@ -46,8 +46,8 @@ type Card struct {
 	Incomplete bool
 }
 
-// Evaluate computes a card's stoplight. Red: flagged, blocked label, or over
-// the column's red threshold. Yellow: over yellow, or an unanswered mention.
+// Evaluate computes a card's stoplight. Red: flagged, a blocked label, a column
+// named like a blocked label, or over the column's red threshold. Yellow: over yellow, or an unanswered mention.
 // Stale (a stale poll, or DecodeErrors) only shows through when nothing is
 // yellow or red.
 func Evaluate(iss Issue, column string, lane Lane, r Rules, now time.Time, stale bool) Card {
@@ -66,6 +66,12 @@ func Evaluate(iss Issue, column string, lane Lane, r Rules, now time.Time, stale
 				raise(Red, "label "+l)
 				break
 			}
+		}
+	}
+	for _, b := range r.BlockedLabels {
+		if strings.EqualFold(column, b) {
+			raise(Red, "column "+column)
+			break
 		}
 	}
 	if !iss.StatusSince.IsZero() {

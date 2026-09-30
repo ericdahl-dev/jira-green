@@ -11,14 +11,16 @@ Terms used in the code, the docs, and the UI. The code is authoritative.
 - **Other**: the synthetic column for a status no board column maps. It appears only when a
   card uses it.
 - **Card**: one issue placed on the dashboard: its lane, column, stoplight, age, and reasons.
-- **Stoplight**: a card's health. Red (flagged, a blocked label, or over the column's red
-  threshold), Yellow (over the yellow threshold, or an unanswered mention), Stale, or Green.
+- **Stoplight**: a card's health. Red (flagged, a blocked label, a column named like a blocked
+  label, or over the column's red threshold), Yellow (over the yellow threshold, or an unanswered mention), Stale, or Green.
   A lane's light is its worst card.
 - **Stale**: the data may be out of date or partial: the last poll failed, or the card is
   Incomplete. It ranks below Yellow, so it shows only when nothing is yellow or red.
 - **Incomplete**: a card with `DecodeErrors`, fields the jira package could not decode. It is
   Stale, and the errors are listed on their own, not as reasons. Stuck-ticket webhooks carry
   `incomplete` and `decode_errors`.
+- **Blocked labels**: `blocked_labels` (default `["blocked"]`), matched case-insensitively
+  against a card's labels and its column name. `blocked_labels = []` turns off both.
 - **Threshold**: per-column yellow and red durations for time in the current status. Defaults:
   In Progress 3d yellow / 5d red; Code Review and UA 3d yellow / 7d red.
 - **Muted**: issue or epic keys in `muted`; those issues, and the children of muted epics, are

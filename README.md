@@ -249,8 +249,10 @@ others alone. Either level can be left out. A table with neither disables that c
 
 ### `blocked_labels`
 
-Labels that turn a card red, matched case-insensitively. Leave the key out for `["blocked"]`.
-Set `blocked_labels = []` for none.
+Labels that turn a card red, matched case-insensitively. A card whose board column has one of
+these names is red too, so a "Blocked" column works with the default. Leave the key out for
+`["blocked"]`. Set `blocked_labels = []` for none: that turns off both the label and the column
+match.
 
 ### `muted`
 
@@ -337,7 +339,7 @@ column (Done, by convention) is hidden while Done is hidden, unless an open card
 
 | Light | Meaning |
 |---|---|
-| 🔴 Red | Flagged, has a blocked label, or has been in its column past the red threshold |
+| 🔴 Red | Flagged, has a blocked label, sits in a column named like a blocked label, or has been in its column past the red threshold |
 | 🟡 Yellow | Past the column's yellow threshold, or a comment mentions you and you have not replied |
 | ⚪ Stale | The last poll failed, or the card's data is incomplete |
 | 🟢 Green | Moving |
