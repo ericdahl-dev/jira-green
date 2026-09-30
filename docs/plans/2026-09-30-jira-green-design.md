@@ -80,7 +80,7 @@ and the queries run unchanged.
 
 ## Views
 
-`v` toggles between two views over the same state. The last-used view is remembered.
+`v` toggles between two views over the same state. The last-used view is remembered in `state.toml` beside `config.toml` (written on each `v`; a missing or unreadable file falls back to `default_view`).
 
 **Kanban** (default): columns = board statuses, swimlanes = Mine / Waiting on others. A card
 shows stoplight, key, truncated summary, age in status, and assignee in the Waiting lane.

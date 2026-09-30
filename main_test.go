@@ -185,6 +185,7 @@ type harness struct {
 	events    []alert.Event
 	// dispatchErr is what the fake dispatch returns.
 	dispatchErr error
+	savedViews  []string
 }
 
 func newHarness(t *testing.T) *harness {
@@ -211,6 +212,12 @@ func newHarness(t *testing.T) *harness {
 		},
 		now:     func() time.Time { return h.now },
 		openURL: func(string) error { return nil },
+		saveView: func(v string) error {
+			h.mu.Lock()
+			defer h.mu.Unlock()
+			h.savedViews = append(h.savedViews, v)
+			return nil
+		},
 	})
 	return h
 }
@@ -468,5 +475,40 @@ func TestCtrlCQuitsFromManage(t *testing.T) {
 	h.send(ui.OpenManageMsg{Width: 100, Height: 30})
 	if _, ok := has[tea.QuitMsg](h.send(ctrlC())); !ok || !h.cancelled {
 		t.Fatalf("ctrl+c on manage: cancelled %v", h.cancelled)
+	}
+}
+
+func TestVSavesTheView(t *testing.T) {
+	h := newHarness(t)
+	h.send(tea.WindowSizeMsg{Width: 120, Height: 40})
+	h.send(poller.Snapshot{Columns: testCols, Cards: []model.Card{redCard()}, At: h.now})
+	changed, ok := has[ui.ViewChangedMsg](h.send(key("v")))
+	if !ok {
+		t.Fatal("v sent no ViewChangedMsg")
+	}
+	msgs(h.send(changed))
+	h.mu.Lock()
+	defer h.mu.Unlock()
+	if len(h.savedViews) != 1 || h.savedViews[0] != "list" {
+		t.Errorf("saved %q, want [list]", h.savedViews)
+	}
+}
+
+func TestStartViewPrefersRememberedView(t *testing.T) {
+	dir := t.TempDir()
+	cfg, err := config.New(filepath.Join(dir, "config.toml"), config.Jira{
+		Site: "https://example.atlassian.net", Email: "me@example.com", TokenEnv: "JIRA_API_TOKEN", BoardID: 1,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got := startView(cfg); got != "kanban" {
+		t.Errorf("no state: %q, want default_view kanban", got)
+	}
+	if err := os.WriteFile(filepath.Join(dir, "state.toml"), []byte("view = \"list\"\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if got := startView(cfg); got != "list" {
+		t.Errorf("remembered list: got %q", got)
 	}
 }

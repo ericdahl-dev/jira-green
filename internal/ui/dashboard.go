@@ -23,6 +23,18 @@ const (
 	ViewList
 )
 
+// ViewChangedMsg asks main to remember the chosen view ("kanban" or "list")
+// for the next run. The dashboard does no I/O itself.
+type ViewChangedMsg struct{ View string }
+
+// String is the view's config name: "kanban" or "list".
+func (v ViewMode) String() string {
+	if v == ViewList {
+		return "list"
+	}
+	return "kanban"
+}
+
 // RefreshMsg asks main to poll now (poller.Refresh).
 type RefreshMsg struct{}
 
@@ -67,12 +79,12 @@ type Dashboard struct {
 	hiddenBacklog int
 	// hiddenBacklogLight is the worst light among those cards.
 	hiddenBacklogLight model.Stoplight
-	showHelp      bool
-	detail        *model.Card // shown instead of the board when set
-	picker        *Picker     // shown over the board or detail when set
-	width         int
-	height        int
-	openURL       func(string) error
+	showHelp           bool
+	detail             *model.Card // shown instead of the board when set
+	picker             *Picker     // shown over the board or detail when set
+	width              int
+	height             int
+	openURL            func(string) error
 	// flash is a transient error shown before the status line until the
 	// next key press or flashFor; flashSeq tells its clear timers apart.
 	flash    string
@@ -174,6 +186,8 @@ func (d Dashboard) handleKey(k tea.KeyMsg) (Dashboard, tea.Cmd) {
 		return d, tea.Quit
 	case "v":
 		d.mode = 1 - d.mode
+		msg := ViewChangedMsg{View: d.mode.String()}
+		return d, func() tea.Msg { return msg }
 	case "r":
 		return d, func() tea.Msg { return RefreshMsg{} }
 	case "m":

@@ -74,6 +74,16 @@ func TestVTogglesView(t *testing.T) {
 	}
 }
 
+func TestVAsksMainToRememberTheView(t *testing.T) {
+	d, cmd := loaded(t, "kanban").Update(key("v"))
+	if got, ok := run(cmd).(ui.ViewChangedMsg); !ok || got.View != "list" {
+		t.Fatalf("v sent %#v, want ViewChangedMsg{list}", run(cmd))
+	}
+	if _, cmd = d.Update(key("v")); run(cmd) != (ui.ViewChangedMsg{View: "kanban"}) {
+		t.Errorf("v back sent %#v", run(cmd))
+	}
+}
+
 func TestViewRendersChosenBoard(t *testing.T) {
 	d := loaded(t, "kanban")
 	if v := d.View(); !strings.Contains(v, "─ 🔴 Mine (4) ─") || strings.Contains(v, "▼") {

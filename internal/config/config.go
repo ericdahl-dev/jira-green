@@ -316,14 +316,34 @@ func (c *Config) Save() error {
 
 // save is Save for a caller that already holds mu.
 func (c *Config) save() error {
-	target, err := filepath.EvalSymlinks(c.path)
+	data, err := c.encode()
+	if err != nil {
+		return err
+	}
+	return writeAtomic(c.path, data)
+}
+
+// encode is c as TOML.
+func (c *Config) encode() ([]byte, error) {
+	var buf bytes.Buffer
+	if err := toml.NewEncoder(&buf).Encode(c); err != nil {
+		return nil, err
+	}
+	return buf.Bytes(), nil
+}
+
+// writeAtomic replaces the file at path with data: a mode-0600 temp file
+// in the same directory, renamed over the target. A symlink at path stays a
+// symlink: the file it points to is replaced.
+func writeAtomic(path string, data []byte) error {
+	target, err := filepath.EvalSymlinks(path)
 	switch {
 	case errors.Is(err, fs.ErrNotExist):
-		target = c.path // a new file, or a dangling link to replace
+		target = path // a new file, or a dangling link to replace
 	case err != nil:
-		return fmt.Errorf("write %s: %w", c.path, err)
+		return fmt.Errorf("write %s: %w", path, err)
 	}
-	tmp, err := c.writeTemp(target)
+	tmp, err := writeTemp(path, target, data)
 	if err != nil {
 		return err
 	}
@@ -337,7 +357,11 @@ func (c *Config) save() error {
 func (c *Config) Create() error {
 	c.mu.RLock()
 	defer c.mu.RUnlock()
-	tmp, err := c.writeTemp(c.path)
+	data, err := c.encode()
+	if err != nil {
+		return err
+	}
+	tmp, err := writeTemp(c.path, c.path, data)
 	if err != nil {
 		return err
 	}
@@ -351,25 +375,22 @@ func (c *Config) Create() error {
 	return nil
 }
 
-// writeTemp encodes c into a synced mode-0600 temp file beside target and
-// returns the temp file's name. The caller removes it.
-func (c *Config) writeTemp(target string) (string, error) {
-	var buf bytes.Buffer
-	if err := toml.NewEncoder(&buf).Encode(c); err != nil {
-		return "", err
-	}
+// writeTemp writes data into a synced mode-0600 temp file beside target and
+// returns the temp file's name. The caller removes it. Errors name path, the
+// file the caller asked for.
+func writeTemp(path, target string, data []byte) (string, error) {
 	dir := filepath.Dir(target)
 	if err := os.MkdirAll(dir, 0o700); err != nil {
-		return "", fmt.Errorf("write %s: %w", c.path, err)
+		return "", fmt.Errorf("write %s: %w", path, err)
 	}
-	f, err := os.CreateTemp(dir, ".config-*.toml")
+	f, err := os.CreateTemp(dir, "."+strings.TrimSuffix(filepath.Base(path), ".toml")+"-*.toml")
 	if err != nil {
-		return "", fmt.Errorf("write %s: %w", c.path, err)
+		return "", fmt.Errorf("write %s: %w", path, err)
 	}
 	tmp := f.Name()
 	err = f.Chmod(0o600)
 	if err == nil {
-		_, err = f.Write(buf.Bytes())
+		_, err = f.Write(data)
 	}
 	if err == nil {
 		err = f.Sync()

@@ -2,12 +2,14 @@
 package main
 
 import (
+	"cmp"
 	"context"
 	"errors"
 	"flag"
 	"fmt"
 	"io"
 	"io/fs"
+	"log/slog"
 	"os"
 	"time"
 
@@ -85,13 +87,24 @@ func runDashboard(cfg *config.Config, token string) error {
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 	d := alert.New(cfg.Webhooks)
+	statePath := config.StatePath(cfg.Path())
 	a := newApp(deps{
 		ctx: ctx, cancel: cancel, cfg: cfg, api: api,
 		snaps: p.Start(ctx), refresh: p.Refresh, dispatch: d.Dispatch, now: time.Now,
-		openURL: ui.OpenBrowser,
+		openURL: ui.OpenBrowser, view: startView(cfg),
+		saveView: func(v string) error { return config.SaveState(statePath, config.State{View: v}) },
 	})
 	_, err := tea.NewProgram(a, tea.WithAltScreen()).Run()
 	return err
+}
+
+// startView is the view the dashboard opens in: the one remembered in
+// state.toml, else default_view.
+func startView(cfg *config.Config) string {
+	if s := config.LoadState(config.StatePath(cfg.Path())); s.View != "" {
+		return s.View
+	}
+	return cfg.DefaultView()
 }
 
 func runInit(args []string, path string, stderr io.Writer) int {
@@ -130,6 +143,8 @@ type deps struct {
 	dispatch func(context.Context, alert.Event) error
 	now      func() time.Time
 	openURL  func(string) error // ui.OpenBrowser
+	view     string             // the starting view; "" = cfg.DefaultView()
+	saveView func(string) error // remembers the view in state.toml
 }
 
 type screen int
@@ -154,7 +169,7 @@ type app struct {
 func newApp(d deps) app {
 	return app{
 		deps:      d,
-		dashboard: ui.NewDashboard(d.cfg.DefaultView(), d.openURL),
+		dashboard: ui.NewDashboard(cmp.Or(d.view, d.cfg.DefaultView()), d.openURL),
 		tracker:   alert.NewTracker(d.cfg.StuckAlertAfter()),
 		spinner:   spinner.New(spinner.WithSpinner(spinner.MiniDot)),
 	}
@@ -221,6 +236,15 @@ func (m app) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	case ui.RefreshMsg:
 		m.refresh()
 		return m, nil
+	case ui.ViewChangedMsg:
+		save, v := m.saveView, msg.View
+		return m, func() tea.Msg {
+			// Best effort: a view that is not remembered costs one v press.
+			if err := save(v); err != nil {
+				slog.Debug("save view failed", "err", err)
+			}
+			return nil
+		}
 	case poller.Snapshot:
 		snap := msg
 		m.loaded = true

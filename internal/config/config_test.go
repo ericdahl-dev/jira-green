@@ -611,3 +611,76 @@ func TestSetMutedFailedSaveLeavesMutesUnchanged(t *testing.T) {
 		t.Errorf("mutes changed after failed saves: %v", c.MutedKeys())
 	}
 }
+
+func TestStateRoundTrip(t *testing.T) {
+	dir := t.TempDir()
+	cfgPath := filepath.Join(dir, "config.toml")
+	p := config.StatePath(cfgPath)
+	if p != filepath.Join(dir, "state.toml") {
+		t.Fatalf("state path %q, want state.toml beside config.toml", p)
+	}
+	if err := config.SaveState(p, config.State{View: "list"}); err != nil {
+		t.Fatal(err)
+	}
+	if got := config.LoadState(p); got.View != "list" {
+		t.Errorf("view %q, want list", got.View)
+	}
+	fi, err := os.Stat(p)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if fi.Mode().Perm() != 0o600 {
+		t.Errorf("mode %v, want 0600", fi.Mode().Perm())
+	}
+	if _, err := os.Stat(cfgPath); !os.IsNotExist(err) {
+		t.Errorf("saving state touched config.toml: %v", err)
+	}
+}
+
+func TestLoadStateFallsBackQuietly(t *testing.T) {
+	dir := t.TempDir()
+	cases := map[string]string{
+		"corrupt":  "view = [unterminated",
+		"bad view": "view = \"grid\"\n",
+	}
+	for name, body := range cases {
+		p := filepath.Join(dir, name+".toml")
+		if err := os.WriteFile(p, []byte(body), 0o600); err != nil {
+			t.Fatal(err)
+		}
+		if got := config.LoadState(p); got.View != "" {
+			t.Errorf("%s: view %q, want none", name, got.View)
+		}
+	}
+	if got := config.LoadState(filepath.Join(dir, "missing.toml")); got.View != "" {
+		t.Errorf("missing: view %q", got.View)
+	}
+	p := filepath.Join(dir, "extra.toml")
+	if err := os.WriteFile(p, []byte("view = \"list\"\nfuture = 1\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if got := config.LoadState(p); got.View != "list" {
+		t.Errorf("unknown key: view %q, want list", got.View)
+	}
+}
+
+func TestSaveStateKeepsASymlink(t *testing.T) {
+	dir := t.TempDir()
+	real := filepath.Join(dir, "real-state.toml")
+	if err := os.WriteFile(real, nil, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	link := filepath.Join(dir, "state.toml")
+	if err := os.Symlink(real, link); err != nil {
+		t.Fatal(err)
+	}
+	if err := config.SaveState(link, config.State{View: "kanban"}); err != nil {
+		t.Fatal(err)
+	}
+	if fi, err := os.Lstat(link); err != nil || fi.Mode()&os.ModeSymlink == 0 {
+		t.Errorf("state.toml is no longer a symlink: %v", err)
+	}
+	if got := config.LoadState(real); got.View != "kanban" {
+		t.Errorf("target view %q", got.View)
+	}
+}
