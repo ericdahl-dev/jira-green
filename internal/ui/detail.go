@@ -10,6 +10,12 @@ import (
 
 // RenderDetail is the detail pane for one card, fit to width.
 func RenderDetail(c model.Card, width int) string {
+	body, hint := detailLines(c, width)
+	return strings.Join(append(body, hint...), "\n") + "\n"
+}
+
+// detailLines is the detail pane as its scrolling body and its key hint.
+func detailLines(c model.Card, width int) (body, hint []string) {
 	var ls []string
 	add := func(s ...string) { ls = append(ls, s...) }
 
@@ -50,12 +56,11 @@ func RenderDetail(c model.Card, width int) string {
 	if c.URL != "" {
 		add("", c.URL)
 	}
-	add("", dimStyle.Render("esc back  t transition  o open"))
-
+	add("")
 	for i := range ls {
 		ls[i] = truncate(ls[i], width)
 	}
-	return strings.Join(ls, "\n") + "\n"
+	return ls, []string{truncate(dimStyle.Render("esc back  t transition  o open"), width)}
 }
 
 // dataIncomplete starts the reason model.Evaluate gives for DecodeErrors.

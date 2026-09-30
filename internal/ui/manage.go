@@ -150,6 +150,5 @@ func (m Manage) View() string {
 		tail = append(tail, "", truncate("  ⚠ "+m.err.Error(), m.width))
 	}
 	tail = append(tail, "", dimStyle.Render(truncate("↑↓ move  space mute/unmute  esc back", m.width)))
-	rows = window(rows, m.cursor, m.cursor+1, m.height-len(tail))
-	return strings.Join(append(rows, tail...), "\n") + "\n"
+	return strings.Join(fit(nil, rows, tail, m.cursor, m.cursor+1, m.height), "\n") + "\n"
 }

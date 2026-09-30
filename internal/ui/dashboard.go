@@ -437,14 +437,14 @@ func (d Dashboard) View() string {
 		return d.picker.View()
 	}
 	if d.detail != nil {
-		v := RenderDetail(*d.detail, d.width)
+		body, tail := detailLines(*d.detail, d.width)
 		if d.flash != "" {
-			v += truncate(d.flash, d.width) + "\n"
+			tail = append(tail, truncate(d.flash, d.width))
 		}
-		return v
+		return strings.Join(fit(nil, body, tail, 0, 1, d.height), "\n") + "\n"
 	}
 	if d.showHelp {
-		return RenderHelp()
+		return strings.Join(fit(nil, lines(RenderHelp()), nil, 0, 1, d.height), "\n") + "\n"
 	}
 	// Each view keeps its first lines (pinned) and scrolls the rest to fit
 	// the terminal above the status line, keeping the selection in view.
@@ -462,8 +462,7 @@ func (d Dashboard) View() string {
 		pinned, ls = []string{all[0]}, all[1:] // the column header
 		from, to = cl-1, cl+2                  // a card is three lines
 	}
-	ls = append(pinned, window(ls, from, to, d.height-1-len(pinned))...)
-	return strings.Join(append(ls, d.statusLine()), "\n")
+	return strings.Join(fit(pinned, ls, []string{d.statusLine()}, from, to, d.height), "\n")
 }
 
 const keyHints = "←→↑↓ move  enter detail  t transition  o open  v view  d done  b backlog  r refresh  m manage  q quit  ? help"
