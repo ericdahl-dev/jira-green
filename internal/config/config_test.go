@@ -124,7 +124,7 @@ func TestUnmuteRoundTrip(t *testing.T) {
 }
 
 func TestLoadTrimsSiteSlash(t *testing.T) {
-	c, err := Load(write(t, "[jira]\n  site = \"https://example.atlassian.net/\"\n  board_id = 7\n"))
+	c, err := Load(write(t, "[jira]\n  site = \"https://example.atlassian.net/\"\n  email = \"me@example.com\"\n  board_id = 7\n"))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -369,5 +369,35 @@ func TestSaveTightensMode(t *testing.T) {
 	}
 	if m := fi.Mode().Perm(); m != 0o600 {
 		t.Errorf("mode %o, want 600", m)
+	}
+}
+
+func TestLoadValidation(t *testing.T) {
+	cases := []struct {
+		name, body, want string
+	}{
+		{"negative poll", minimal + "\n[settings]\n  poll_interval_seconds = -1\n", "settings.poll_interval_seconds"},
+		{"negative board refresh", minimal + "\n[settings]\n  board_refresh_interval_seconds = -5\n", "settings.board_refresh_interval_seconds"},
+		{"no email", "[jira]\n  site = \"https://example.atlassian.net\"\n  board_id = 7\n", "jira.email"},
+		{"http site", "[jira]\n  site = \"http://example.atlassian.net\"\n  email = \"me@example.com\"\n  board_id = 7\n", "jira.site"},
+		{"hostless site", "[jira]\n  site = \"example.atlassian.net\"\n  email = \"me@example.com\"\n  board_id = 7\n", "jira.site"},
+		{"yellow not below red", minimal + "\n[thresholds.\"UA\"]\n  yellow = \"2d\"\n  red = \"1d\"\n", "yellow must be less than red"},
+		{"yellow equals red", minimal + "\n[thresholds.\"UA\"]\n  yellow = \"1d\"\n  red = \"24h\"\n", "yellow must be less than red"},
+	}
+	for _, c := range cases {
+		_, err := Load(write(t, c.body))
+		if err == nil || !strings.Contains(err.Error(), c.want) {
+			t.Errorf("%s: want error containing %q, got %v", c.name, c.want, err)
+		}
+	}
+}
+
+func TestLoadValidationReportsFirstColumnInOrder(t *testing.T) {
+	body := minimal + "\n[thresholds.\"Zeta\"]\n  yellow = \"soon\"\n[thresholds.\"Alpha\"]\n  yellow = \"soon\"\n[thresholds.\"Mid\"]\n  red = \"later\"\n"
+	for range 20 {
+		_, err := Load(write(t, body))
+		if err == nil || !strings.Contains(err.Error(), `"Alpha"`) {
+			t.Fatalf("want the error for the first column in sorted order (Alpha), got %v", err)
+		}
 	}
 }

@@ -5,6 +5,8 @@ import (
 	"bytes"
 	"errors"
 	"fmt"
+	"maps"
+	"net/url"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -54,7 +56,7 @@ type Config struct {
 	Jira          Jira           `toml:"jira"`
 	JQL           JQL            `toml:"jql,omitempty"`
 	Thresholds    map[string]Age `toml:"thresholds,omitempty"`
-	BlockedLabels []string       `toml:"blocked_labels"` // nil = default; [] = none
+	BlockedLabels []string       `toml:"blocked_labels"`  // nil = default; [] = none
 	Muted         []string       `toml:"muted,omitempty"` // issue or epic keys
 	Webhooks      []Webhook      `toml:"webhooks,omitempty"`
 
@@ -109,6 +111,12 @@ func Load(path string) (*Config, error) {
 // normalising jira.site, so Save persists only what the user wrote; defaults
 // are resolved by the accessors.
 func (c *Config) validate() error {
+	if c.Settings.PollIntervalSeconds < 0 {
+		return fmt.Errorf("settings.poll_interval_seconds must be >= 0 (0 = default), got %d", c.Settings.PollIntervalSeconds)
+	}
+	if c.Settings.BoardRefreshIntervalSeconds < 0 {
+		return fmt.Errorf("settings.board_refresh_interval_seconds must be >= 0 (0 = default), got %d", c.Settings.BoardRefreshIntervalSeconds)
+	}
 	if v := c.DefaultView(); v != "kanban" && v != "list" {
 		return fmt.Errorf("settings.default_view must be kanban or list, got %q", v)
 	}
@@ -121,6 +129,12 @@ func (c *Config) validate() error {
 		return errors.New("jira.site is required")
 	}
 	c.Jira.Site = strings.TrimRight(c.Jira.Site, "/")
+	if u, err := url.Parse(c.Jira.Site); err != nil || u.Scheme != "https" || u.Host == "" {
+		return fmt.Errorf("jira.site must be an https URL such as https://example.atlassian.net, got %q", c.Jira.Site)
+	}
+	if strings.TrimSpace(c.Jira.Email) == "" {
+		return errors.New("jira.email is required")
+	}
 	if c.Jira.BoardID <= 0 {
 		return errors.New("jira.board_id is required")
 	}
@@ -189,7 +203,9 @@ func (c *Config) Rules(me string) (model.Rules, error) {
 		merged[col] = a
 	}
 	r := model.Rules{Me: me, BlockedLabels: labels, Thresholds: map[string]model.Threshold{}}
-	for col, a := range merged {
+	cols := slices.Sorted(maps.Keys(merged)) // deterministic error order
+	for _, col := range cols {
+		a := merged[col]
 		var th model.Threshold
 		var err error
 		if a.Yellow != "" {
@@ -201,6 +217,9 @@ func (c *Config) Rules(me string) (model.Rules, error) {
 			if th.Red, err = model.ParseAge(a.Red); err != nil {
 				return r, fmt.Errorf("thresholds.%q.red: %w", col, err)
 			}
+		}
+		if th.Yellow > 0 && th.Red > 0 && th.Yellow >= th.Red {
+			return r, fmt.Errorf("thresholds.%q: yellow must be less than red (%s >= %s)", col, a.Yellow, a.Red)
 		}
 		r.Thresholds[col] = th
 	}
