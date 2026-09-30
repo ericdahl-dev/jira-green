@@ -132,9 +132,13 @@ func (c *Config) applyDefaultsAndValidate() error {
 	if c.JQL.Done == "" {
 		c.JQL.Done = DefaultDoneJQL
 	}
-	if c.Thresholds == nil {
-		c.Thresholds = defaultThresholds()
+	// Defaults apply per column; a user entry replaces only its own column,
+	// and an entry with neither yellow nor red disables that column.
+	merged := defaultThresholds()
+	for col, a := range c.Thresholds {
+		merged[col] = a
 	}
+	c.Thresholds = merged
 	if c.BlockedLabels == nil {
 		c.BlockedLabels = []string{"blocked"}
 	}

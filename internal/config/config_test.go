@@ -3,6 +3,7 @@ package config
 import (
 	"os"
 	"path/filepath"
+	"reflect"
 	"testing"
 	"time"
 )
@@ -176,5 +177,90 @@ func TestWriteStarter(t *testing.T) {
 	}
 	if _, err := WriteStarter(p, j); err == nil {
 		t.Error("want error: starter must not overwrite")
+	}
+}
+
+func TestThresholdsMergeKeepsOtherDefaults(t *testing.T) {
+	c, err := Load(write(t, minimal+"\n[thresholds.\"In Progress\"]\n  yellow = \"4d\"\n  red = \"6d\"\n"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	r, err := c.Rules("")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if r.Thresholds["In Progress"].Yellow != 4*24*time.Hour || r.Thresholds["In Progress"].Red != 6*24*time.Hour {
+		t.Errorf("in progress %+v", r.Thresholds["In Progress"])
+	}
+	if r.Thresholds["UA"].Red != 2*24*time.Hour || r.Thresholds["Code Review"].Yellow != 24*time.Hour {
+		t.Errorf("defaults lost: %+v", r.Thresholds)
+	}
+}
+
+func TestThresholdsOverrideReplacesColumn(t *testing.T) {
+	c, err := Load(write(t, minimal+"\n[thresholds.\"Code Review\"]\n  yellow = \"4h\"\n"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	r, err := c.Rules("")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if th := r.Thresholds["Code Review"]; th.Yellow != 4*time.Hour || th.Red != 0 {
+		t.Errorf("code review %+v, want yellow 4h and no red", th)
+	}
+}
+
+func TestThresholdsEmptyEntryDisablesColumn(t *testing.T) {
+	c, err := Load(write(t, minimal+"\n[thresholds.\"UA\"]\n"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	r, err := c.Rules("")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if th, ok := r.Thresholds["UA"]; !ok || th.Yellow != 0 || th.Red != 0 {
+		t.Errorf("UA %+v (present %v), want zero threshold", th, ok)
+	}
+	if r.Thresholds["In Progress"].Red != 5*24*time.Hour {
+		t.Errorf("in progress default lost: %+v", r.Thresholds)
+	}
+}
+
+func TestThresholdsAddsUserColumn(t *testing.T) {
+	c, err := Load(write(t, minimal+"\n[thresholds.\"QA\"]\n  red = \"3d\"\n"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	r, err := c.Rules("")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if r.Thresholds["QA"].Red != 3*24*time.Hour {
+		t.Errorf("QA %+v", r.Thresholds["QA"])
+	}
+	if len(r.Thresholds) != 4 {
+		t.Errorf("want 3 defaults + QA, got %+v", r.Thresholds)
+	}
+}
+
+func TestThresholdsSaveRoundTrip(t *testing.T) {
+	body := minimal + "\n[thresholds.\"UA\"]\n\n[thresholds.\"QA\"]\n  red = \"3d\"\n"
+	c, err := Load(write(t, body))
+	if err != nil {
+		t.Fatal(err)
+	}
+	want, _ := c.Rules("")
+	if err := c.Save(); err != nil {
+		t.Fatal(err)
+	}
+	c2, err := Load(c.Path())
+	if err != nil {
+		t.Fatal(err)
+	}
+	got, _ := c2.Rules("")
+	if !reflect.DeepEqual(got, want) {
+		t.Errorf("after save got %+v, want %+v", got.Thresholds, want.Thresholds)
 	}
 }
