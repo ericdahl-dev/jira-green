@@ -5,6 +5,7 @@ import (
 	"errors"
 	"os"
 	"path/filepath"
+	"slices"
 	"strings"
 	"sync"
 	"testing"
@@ -26,8 +27,10 @@ type fake struct {
 	comments      map[string][]model.Comment
 	commentHits   map[string]int
 	boardCalls    int
-	err           error // returned by Search when set
-	commentErr    error // returned by Comments when set
+	filterID      string   // BoardConfig's FilterID
+	searched      []string // every JQL Search received, in order
+	err           error    // returned by Search when set
+	commentErr    error    // returned by Comments when set
 	changelogErr  map[string]error
 	// searching, when set, makes Search signal it and then block until ctx
 	// is done, returning ctx.Err().
@@ -63,21 +66,22 @@ func (f *fake) Search(ctx context.Context, jql, _ string) ([]model.Issue, error)
 	}
 	f.mu.Lock()
 	defer f.mu.Unlock()
+	f.searched = append(f.searched, jql)
 	if f.err != nil {
 		return nil, f.err
 	}
 	return f.byJQL[jql], nil
 }
 
-func (f *fake) BoardColumns(context.Context, int) ([]model.Column, error) {
+func (f *fake) BoardConfig(context.Context, int) (jira.BoardConfig, error) {
 	f.mu.Lock()
 	defer f.mu.Unlock()
 	f.boardCalls++
-	return []model.Column{
+	return jira.BoardConfig{FilterID: f.filterID, Columns: []model.Column{
 		{Name: "To Do", StatusIDs: []string{"1"}},
 		{Name: "In Progress", StatusIDs: []string{"3"}},
 		{Name: "Done", StatusIDs: []string{"5"}},
-	}, nil
+	}}, nil
 }
 
 func (f *fake) StatusChanges(_ context.Context, key string) ([]model.StatusChange, error) {
@@ -647,5 +651,56 @@ func TestPollDecodeErrorsMakeAStaleCard(t *testing.T) {
 	snap := newPoller(c, f, &now).PollOnce(context.Background())
 	if snap.Err != nil || len(snap.Cards) != 1 || snap.Cards[0].Light != model.Stale {
 		t.Fatalf("want one stale card, got %+v", snap)
+	}
+}
+
+func TestPollScopesMineAndDoneToTheBoardFilter(t *testing.T) {
+	c := cfg(t, "")
+	f := newFake()
+	f.filterID = "12345"
+	f.byJQL["("+c.MineJQL()+") AND filter = 12345"] = []model.Issue{{Key: "ABC-1", StatusID: "3", Created: t0, Updated: t0}}
+	f.byJQL["("+c.DoneJQL()+") AND filter = 12345"] = []model.Issue{{Key: "ABC-3", StatusID: "5", Created: t0, Updated: t0}}
+	now := t0
+	snap := newPoller(c, f, &now).PollOnce(context.Background())
+	if snap.Err != nil || len(snap.Cards) != 2 {
+		t.Fatalf("want ABC-1 and ABC-3 from the scoped queries, got %+v (searched %q)", snap, f.searched)
+	}
+	if snap.Cards[0].Key != "ABC-1" || snap.Cards[0].Lane != model.LaneMine ||
+		snap.Cards[1].Key != "ABC-3" || snap.Cards[1].Lane != model.LaneDone {
+		t.Errorf("cards %+v", snap.Cards)
+	}
+}
+
+func TestPollLeavesWaitingUnscoped(t *testing.T) {
+	c := cfg(t, "")
+	f := newFake()
+	f.filterID = "12345"
+	f.byJQL[c.WaitingJQL()] = []model.Issue{{Key: "XYZ-2", StatusID: "3", Created: t0, Updated: t0}}
+	now := t0
+	snap := newPoller(c, f, &now).PollOnce(context.Background())
+	if snap.Err != nil || len(snap.Cards) != 1 || snap.Cards[0].Lane != model.LaneWaiting {
+		t.Fatalf("want XYZ-2 from the unscoped Waiting query, got %+v (searched %q)", snap.Cards, f.searched)
+	}
+}
+
+func TestPollWithoutABoardFilterScopesNothing(t *testing.T) {
+	c := cfg(t, "")
+	f := newFake() // filterID ""
+	now := t0
+	newPoller(c, f, &now).PollOnce(context.Background())
+	want := []string{c.MineJQL(), c.WaitingJQL(), c.DoneJQL()}
+	if !slices.Equal(f.searched, want) {
+		t.Fatalf("searched %q, want the lane queries unchanged %q", f.searched, want)
+	}
+}
+
+func TestPollScopesAMineOverride(t *testing.T) {
+	c := cfg(t, "[jql]\n  mine = \"project = ABC OR labels = x\"\n")
+	f := newFake()
+	f.filterID = "12345"
+	now := t0
+	newPoller(c, f, &now).PollOnce(context.Background())
+	if len(f.searched) == 0 || f.searched[0] != "(project = ABC OR labels = x) AND filter = 12345" {
+		t.Fatalf("searched %q, want the override parenthesised and scoped", f.searched)
 	}
 }

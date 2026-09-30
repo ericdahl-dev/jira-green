@@ -45,6 +45,13 @@ Two JQL queries, overridable in config:
 - **Mine**: `assignee = currentUser() AND sprint IN openSprints() AND statusCategory != Done`
 - **Waiting on others**: `(reporter = currentUser() OR watcher = currentUser()) AND assignee != currentUser() AND statusCategory != Done`
 
+**Board scoping.** Mine and Done are scoped to the board: the poller reads the board's saved
+filter ID from `/rest/agile/1.0/board/{id}/configuration` (`"filter": {"id": "12345"}`) and runs
+`(<lane jql>) AND filter = 12345`. The filter is ANDed onto a user's `[jql]` override too, so an
+override narrows within the board and cannot widen past it. Waiting on others stays global:
+work you are waiting on often lives on other boards. If the board configuration has no filter
+ID (or one that is not a number), nothing is scoped and the queries run unchanged.
+
 ## Flow health (card stoplight)
 
 | Light | Rule |

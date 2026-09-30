@@ -9,22 +9,26 @@ import (
 	"time"
 )
 
-func TestBoardColumns(t *testing.T) {
+func TestBoardConfig(t *testing.T) {
 	c := newTest(t, func(w http.ResponseWriter, r *http.Request) {
 		if r.URL.Path != "/rest/agile/1.0/board/7/configuration" {
 			t.Errorf("path %s", r.URL.Path)
 		}
-		_, _ = w.Write([]byte(`{"columnConfig":{"columns":[
+		_, _ = w.Write([]byte(`{"filter":{"id":"12345"},"columnConfig":{"columns":[
 			{"name":"To Do","statuses":[{"id":"1"}]},
 			{"name":"Code Review","statuses":[{"id":"10"},{"id":"11"}]}]}}`))
 	})
-	cols, err := c.BoardColumns(context.Background(), 7)
+	bc, err := c.BoardConfig(context.Background(), 7)
+	cols := bc.Columns
 	if err != nil || len(cols) != 2 {
 		t.Fatalf("%+v %v", cols, err)
 	}
 	if cols[0].Name != "To Do" || !slices.Equal(cols[0].StatusIDs, []string{"1"}) ||
 		cols[1].Name != "Code Review" || !slices.Equal(cols[1].StatusIDs, []string{"10", "11"}) {
 		t.Errorf("%+v", cols)
+	}
+	if bc.FilterID != "12345" {
+		t.Errorf("FilterID = %q, want 12345", bc.FilterID)
 	}
 }
 
@@ -197,5 +201,19 @@ func TestIssueKeysArePathEscaped(t *testing.T) {
 	}
 	if !slices.Equal(paths, want) {
 		t.Errorf("paths\n got %q\nwant %q", paths, want)
+	}
+}
+
+func TestBoardConfigIgnoresMissingOrOddFilterID(t *testing.T) {
+	for _, body := range []string{
+		`{"columnConfig":{"columns":[]}}`,
+		`{"filter":{"id":""},"columnConfig":{"columns":[]}}`,
+		`{"filter":{"id":"1 OR project = X"},"columnConfig":{"columns":[]}}`,
+	} {
+		c := newTest(t, func(w http.ResponseWriter, r *http.Request) { _, _ = w.Write([]byte(body)) })
+		bc, err := c.BoardConfig(context.Background(), 7)
+		if err != nil || bc.FilterID != "" {
+			t.Errorf("%s: FilterID %q err %v, want \"\"", body, bc.FilterID, err)
+		}
 	}
 }

@@ -41,6 +41,7 @@ type Poller struct {
 	mu         sync.Mutex
 	me         string
 	cols       []model.Column
+	filterID   string // the board's saved filter; "" = do not scope
 	colsAt     time.Time
 	changelogs map[string]clEntry
 	comments   map[string]cmEntry
@@ -109,11 +110,11 @@ func (p *Poller) fetch(ctx context.Context, now time.Time) (Snapshot, error) {
 		p.me = u.AccountID
 	}
 	if p.cols == nil || now.Sub(p.colsAt) >= p.cfg.BoardRefreshInterval() {
-		cols, err := p.api.BoardColumns(ctx, p.cfg.Jira.BoardID)
+		bc, err := p.api.BoardConfig(ctx, p.cfg.Jira.BoardID)
 		if err != nil {
 			return Snapshot{}, err
 		}
-		p.cols, p.colsAt = cols, now
+		p.cols, p.filterID, p.colsAt = bc.Columns, bc.FilterID, now
 	}
 	rules, err := p.cfg.Rules(p.me)
 	if err != nil {
@@ -124,9 +125,9 @@ func (p *Poller) fetch(ctx context.Context, now time.Time) (Snapshot, error) {
 		lane model.Lane
 		jql  string
 	}{
-		{model.LaneMine, p.cfg.MineJQL()},
-		{model.LaneWaiting, p.cfg.WaitingJQL()},
-		{model.LaneDone, p.cfg.DoneJQL()},
+		{model.LaneMine, p.scoped(p.cfg.MineJQL())},
+		{model.LaneWaiting, p.cfg.WaitingJQL()}, // global: waiting spans boards
+		{model.LaneDone, p.scoped(p.cfg.DoneJQL())},
 	}
 	seen := map[string]bool{}
 	var cards []model.Card
@@ -167,6 +168,16 @@ func (p *Poller) fetch(ctx context.Context, now time.Time) (Snapshot, error) {
 	maps.DeleteFunc(p.changelogs, func(k string, _ clEntry) bool { return !seen[k] })
 	maps.DeleteFunc(p.comments, func(k string, _ cmEntry) bool { return !seen[k] })
 	return Snapshot{Columns: p.cols, Cards: cards, At: now}, nil
+}
+
+// scoped ANDs the board's saved filter onto a lane query, so the lane shows
+// only this board's issues. A user's [jql] override is scoped too. With no
+// filter ID the query is unchanged.
+func (p *Poller) scoped(jql string) string {
+	if p.filterID == "" {
+		return jql
+	}
+	return "(" + jql + ") AND filter = " + p.filterID
 }
 
 // fatal reports whether a per-issue fetch error must fail the whole poll: a

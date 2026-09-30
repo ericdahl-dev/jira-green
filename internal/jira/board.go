@@ -4,13 +4,26 @@ import (
 	"context"
 	"fmt"
 	"net/http"
+	"strings"
 
 	"github.com/ericdahl-dev/jira-green/internal/model"
 )
 
-// BoardColumns returns the board's columns in display order.
-func (c *Client) BoardColumns(ctx context.Context, boardID int) ([]model.Column, error) {
+// BoardConfig is the part of a board's configuration jira-green reads.
+type BoardConfig struct {
+	Columns []model.Column // display order
+	// FilterID is the board's saved filter, for scoping lane JQL with
+	// "filter = ID". It is "" when the response had none, or an ID that is
+	// not all digits (it is spliced into JQL, so it must be a bare number).
+	FilterID string
+}
+
+// BoardConfig returns the board's columns and saved filter ID.
+func (c *Client) BoardConfig(ctx context.Context, boardID int) (BoardConfig, error) {
 	var r struct {
+		Filter struct {
+			ID string `json:"id"`
+		} `json:"filter"`
 		ColumnConfig struct {
 			Columns []struct {
 				Name     string `json:"name"`
@@ -21,17 +34,20 @@ func (c *Client) BoardColumns(ctx context.Context, boardID int) ([]model.Column,
 		} `json:"columnConfig"`
 	}
 	if err := c.do(ctx, http.MethodGet, fmt.Sprintf("/rest/agile/1.0/board/%d/configuration", boardID), nil, &r); err != nil {
-		return nil, err
+		return BoardConfig{}, err
 	}
-	var cols []model.Column
+	bc := BoardConfig{}
+	if isDigits(r.Filter.ID) {
+		bc.FilterID = r.Filter.ID
+	}
 	for _, col := range r.ColumnConfig.Columns {
 		mc := model.Column{Name: col.Name}
 		for _, s := range col.Statuses {
 			mc.StatusIDs = append(mc.StatusIDs, s.ID)
 		}
-		cols = append(cols, mc)
+		bc.Columns = append(bc.Columns, mc)
 	}
-	return cols, nil
+	return bc, nil
 }
 
 // Board is an agile board the user can see.
@@ -62,4 +78,8 @@ func (c *Client) Boards(ctx context.Context) ([]Board, error) {
 		out = append(out, Board{ID: v.ID, Name: v.Name, ProjectKey: v.Location.ProjectKey})
 	}
 	return out, nil
+}
+
+func isDigits(s string) bool {
+	return s != "" && strings.Trim(s, "0123456789") == ""
 }

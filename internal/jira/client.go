@@ -101,7 +101,7 @@ func (c *Client) Myself(ctx context.Context) (User, error) {
 type API interface {
 	Myself(ctx context.Context) (User, error)
 	Search(ctx context.Context, jql, flaggedField string) ([]model.Issue, error)
-	BoardColumns(ctx context.Context, boardID int) ([]model.Column, error)
+	BoardConfig(ctx context.Context, boardID int) (BoardConfig, error)
 	StatusChanges(ctx context.Context, key string) ([]model.StatusChange, error)
 	Comments(ctx context.Context, key string) ([]model.Comment, error)
 	Transitions(ctx context.Context, key string) ([]Transition, error)

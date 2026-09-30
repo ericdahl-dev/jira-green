@@ -3726,6 +3726,15 @@ Check:
 
 ---
 
+## Post-plan decisions
+
+Decisions made after this plan was written. The code is authoritative; this records why.
+
+- **Board scoping.** `jira.API.BoardColumns` became `BoardConfig`, returning
+  `jira.BoardConfig{Columns, FilterID}` from the one configuration request. The poller ANDs
+  `filter = ID` onto the Mine and Done queries, including a `[jql]` override; Waiting stays
+  global. A missing or non-numeric filter ID scopes nothing.
+
 ## Out of scope for v1
 
 - A comment/nudge action, creating issues, editing fields
