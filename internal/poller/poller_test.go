@@ -584,7 +584,7 @@ func TestRefreshAfterStartExitedDoesNotBlock(t *testing.T) {
 	}
 }
 
-func TestStartCancelledMidPollEmitsNoCanceledSnapshot(t *testing.T) {
+func TestStartCanceledMidPollEmitsNoCanceledSnapshot(t *testing.T) {
 	// The emit select races out against ctx.Done, so repeat to catch it.
 	for range 20 {
 		c := cfg(t, "")

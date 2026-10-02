@@ -114,7 +114,7 @@ requests `issuetype` and, for a subtask (`issuetype.subtask`), keeps the story a
 (`GET /rest/api/3/issue/{story}?fields=parent,summary`), caches it per story for the board
 refresh interval, and files the subtask under that epic, or under No epic when the story has
 none. Rows show a subtask as `ABC-12 › Write tests` (`Issue.DisplaySummary`). Muting the epic or
-the story hides the subtask. A failed lookup follows the usual rule: a 401, 429, or cancelled
+the story hides the subtask. A failed lookup follows the usual rule: a 401, 429, or canceled
 context fails the poll; anything else marks the card data-incomplete and leaves it grouped under
 its story.
 
@@ -124,7 +124,7 @@ its story.
 `POST /rest/api/3/search/approximate-count` (`{"jql": ...}` → `{"count": N}`; `search/jql`
 returns no total). Counts are cached per epic for the board refresh interval (default 10m), not
 refetched every poll, and are exposed as `Snapshot.EpicProgress[epicKey]`. A 401, 429, or
-cancelled context fails the poll; any other count error leaves that epic with no progress shown,
+canceled context fails the poll; any other count error leaves that epic with no progress shown,
 never a wrong number. No epic, and a story standing in for an unresolved subtask epic, show
 none.
 
