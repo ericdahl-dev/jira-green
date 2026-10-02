@@ -318,7 +318,7 @@ func hasThreshold(r model.Rules, column string) bool {
 
 // fatal reports whether a per-issue fetch error must fail the whole poll: a
 // 401 (stop polling), a 429 (its RetryAfter must reach the snapshot), or a
-// cancelled or expired context. Any other error only degrades that card.
+// canceled or expired context. Any other error only degrades that card.
 func fatal(err error) bool {
 	var ae *jira.APIError
 	return jira.IsAuth(err) ||

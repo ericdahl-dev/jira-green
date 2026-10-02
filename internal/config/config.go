@@ -145,7 +145,7 @@ func Load(path string) (*Config, error) {
 func (c *Config) Warnings() []string { return slices.Clone(c.warnings) }
 
 // validate checks the values the user wrote. It writes nothing back except
-// normalising jira.site, so Save persists only what the user wrote; defaults
+// normalizing jira.site, so Save persists only what the user wrote; defaults
 // are resolved by the accessors.
 func (c *Config) validate() error {
 	if c.Settings.PollIntervalSeconds < 0 {

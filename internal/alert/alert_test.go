@@ -124,7 +124,7 @@ func TestDispatchNoHooksIsNoop(t *testing.T) {
 	}
 }
 
-func TestDispatchCancelledContextSendsNothing(t *testing.T) {
+func TestDispatchCanceledContextSendsNothing(t *testing.T) {
 	hit := make(chan struct{}, 1)
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		hit <- struct{}{}
@@ -134,11 +134,11 @@ func TestDispatchCancelledContextSendsNothing(t *testing.T) {
 	ctx, cancel := context.WithCancel(context.Background())
 	cancel()
 	if err := alert.New([]config.Webhook{{URL: srv.URL}}).Dispatch(ctx, alert.Event{Type: alert.TypeTicketStuck}); err == nil {
-		t.Error("a cancelled dispatch reported success")
+		t.Error("a canceled dispatch reported success")
 	}
 	select {
 	case <-hit:
-		t.Fatal("a cancelled context still delivered the webhook")
+		t.Fatal("a canceled context still delivered the webhook")
 	case <-time.After(100 * time.Millisecond):
 	}
 }

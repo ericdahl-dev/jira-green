@@ -192,7 +192,7 @@ type harness struct {
 	cfg       *config.Config
 	snaps     chan poller.Snapshot
 	refreshes int
-	cancelled bool
+	canceled  bool
 	api       *fakeAPI
 	now       time.Time
 	mu        sync.Mutex
@@ -213,7 +213,7 @@ func newHarness(t *testing.T) *harness {
 	h := &harness{cfg: cfg, snaps: make(chan poller.Snapshot, 4), api: &fakeAPI{}, now: time.Date(2026, 9, 30, 9, 0, 0, 0, time.UTC)}
 	h.m = newApp(deps{
 		ctx:     context.Background(),
-		cancel:  func() { h.cancelled = true },
+		cancel:  func() { h.canceled = true },
 		cfg:     cfg,
 		api:     h.api,
 		snaps:   h.snaps,
@@ -293,8 +293,8 @@ func ctrlC() tea.KeyMsg { return tea.KeyMsg{Type: tea.KeyCtrlC} }
 func TestCtrlCQuitsAndStopsPolling(t *testing.T) {
 	h := newHarness(t)
 	cmd := h.send(ctrlC())
-	if _, ok := has[tea.QuitMsg](cmd); !ok || !h.cancelled {
-		t.Fatalf("quit %v cancelled %v", ok, h.cancelled)
+	if _, ok := has[tea.QuitMsg](cmd); !ok || !h.canceled {
+		t.Fatalf("quit %v canceled %v", ok, h.canceled)
 	}
 }
 
@@ -487,8 +487,8 @@ func TestCtrlCQuitsFromManage(t *testing.T) {
 		t.Fatal("q on manage quits the app; it should go back")
 	}
 	h.send(ui.OpenManageMsg{Width: 100, Height: 30})
-	if _, ok := has[tea.QuitMsg](h.send(ctrlC())); !ok || !h.cancelled {
-		t.Fatalf("ctrl+c on manage: cancelled %v", h.cancelled)
+	if _, ok := has[tea.QuitMsg](h.send(ctrlC())); !ok || !h.canceled {
+		t.Fatalf("ctrl+c on manage: canceled %v", h.canceled)
 	}
 }
 
